@@ -4,7 +4,7 @@ import random  # 用于生成随机数
 
 import numpy as np  # 数值计算库
 import torch  # PyTorch深度学习框架
-from datasets.ADNI import ADNI, ADNI_transform  # 导入ADNI数据集及其数据预处理函数
+from datasets.ADNI import ADNI # 导入ADNI数据集及其数据预处理函数
 from models.mymodel import model_ad, model_CNN_ad  # 导入两种模型定义：Transformer风格和CNN风格
 from options.option import Option  # 导入选项解析类，用于读取配置参数
 from sklearn.model_selection import KFold, train_test_split  # 导入交叉验证和数据集拆分函数
@@ -101,7 +101,7 @@ if __name__ == '__main__':
             # if opt.task == 'pMCIsMCI':
             #     checkpoint_all = torch.load('./pretrainAD.pt', map_location=device)
             #     Checkpoint.load_objects(to_load={'net_model': net_model}, checkpoint=checkpoint_all)
-            #     print('Load pre-training model')
+            #     print('Load pre-training models')
         elif model == 'CNN':
             # 构建CNN风格的模型
             net_model = model_CNN_ad(dim=opt.dim).to(device)

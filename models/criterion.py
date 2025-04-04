@@ -2,8 +2,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-# 从 util.misc 模块中导入 accuracy（计算准确率）和 get_world_size（获取进程数量，用于分布式训练等）
-from util.misc import (accuracy, get_world_size)
+# 从 utils.misc 模块中导入 accuracy（计算准确率）和 get_world_size（获取进程数量，用于分布式训练等）
+from utils.misc import (accuracy, get_world_size)
 
 
 # ---------------------------------------------------------------
