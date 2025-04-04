@@ -134,7 +134,7 @@ class ADNIDataset:
     def __getitem__(self, idx):
         '''根据索引获取一个样本：图像，标签，光流等'''
         label = self._labels[idx]  # 获取标签
-        path = self._paths[idx].replace('data2', 'data')  # 获取图像路径
+        path = self._paths[idx].replace('data2', 'datasets')  # 获取图像路径
         month = self._months[idx]  # 获取月份
         ptid = self._ptids[idx]  # 获取患者ID
         img = self.preprocess(path)  # 处理图像
