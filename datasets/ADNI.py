@@ -24,7 +24,7 @@ class ADNI(Dataset):
     支持三个模态数据：MRI、PET图像和表格数据（生物样本数据、临床检查数据）。
     """
 
-    def __init__(self, csv_file, mri_dir, pet_dir, table_file, task='ADCN', augment=False, data_use='image',model='Ours'):
+    def __init__(self, csv_file, mri_dir, pet_dir, table_file, task='ADCN', augment=False, data_use='img',model='Ours'):
         """
         初始化ADNI数据集类，读取数据和标签文件，并生成数据字典。
 
@@ -36,7 +36,7 @@ class ADNI(Dataset):
         :param augment: 预处理是否启用数据增强
         :param data_use: 模态选择，可选值:
                          'all'   - 使用 MRI、PET 以及表格数据
-                         'image' - 只使用 MRI 和 PET 影像
+                         'img' - 只使用 MRI 和 PET 影像
                          'mri'   - 只使用 MRI 影像
                          'pet'   - 只使用 PET 影像
         :param model: 所用模型，可以用来调整不同数据集
@@ -104,7 +104,7 @@ class ADNI(Dataset):
         """
         根据索引获取一个样本，根据 data_use 参数返回不同模态数据：
             'all'   : 返回 MRI、PET、表格数据及标签
-            'image' : 返回 MRI、PET 影像及标签
+            'img' : 返回 MRI、PET 影像及标签
             'mri'   : 返回 MRI 影像及标签
             'pet'   : 返回 PET 影像及标签
         根据模型调整预处理：主要适配图像维度
@@ -113,11 +113,11 @@ class ADNI(Dataset):
         label = sample['label']  # 从样本信息中提取标签
         result = {}  # 初始化一个空字典，用于存储加载后的数据
 
-        if self.data_use in ['all', 'image', 'mri']:  # 如果 data_use 参数包含 MRI 模态（'all'、'image' 或 'mri'）
+        if self.data_use in ['all', 'img', 'mri']:  # 如果 data_use 参数包含 MRI 模态（'all'、'img' 或 'mri'）
             mri_path = sample['MRI']  # 获取样本中 MRI 图像的路径
             mri_img = LoadImaged(keys=['MRI'])({'MRI': mri_path})['MRI']  # 使用 LoadImaged 函数加载 MRI 图像
             result['MRI'] = mri_img  # 将加载后的 MRI 图像存入结果字典中
-        if self.data_use in ['all', 'image', 'pet']:  # 如果 data_use 参数包含 PET 模态（'all'、'image' 或 'pet'）
+        if self.data_use in ['all', 'img', 'pet']:  # 如果 data_use 参数包含 PET 模态（'all'、'img' 或 'pet'）
             pet_path = sample['PET']  # 获取样本中 PET 图像的路径
             pet_img = LoadImaged(keys=['PET'])({'PET': pet_path})['PET']  # 使用 LoadImaged 函数加载 PET 图像
             result['PET'] = pet_img  # 将加载后的 PET 图像存入结果字典中
@@ -125,7 +125,7 @@ class ADNI(Dataset):
             result['TABLE'] = sample['TABLE']  # 将样本中的表格数据存入结果字典中
 
         # 根据 data_use 设置预处理流程（仅针对图像模态）
-        if self.data_use in ['all', 'image', 'mri', 'pet']:  # 如果需要预处理图像数据（所有包含图像数据的情况）
+        if self.data_use in ['all', 'img', 'mri', 'pet']:  # 如果需要预处理图像数据（所有包含图像数据的情况）
             # if self.augment:  # 如果启用了数据增强
             #     transform = self.get_augmentation_transform()  # 获取数据增强的转换流程
             # else:
@@ -152,14 +152,14 @@ class ADNI(Dataset):
         # 返回不同模态的数据，根据 data_use 参数返回相应的数据组合
         if self.data_use == 'all':  # 如果 data_use 参数为 'all'
             return result['MRI'], result['PET'], result['TABLE'], label  # 返回 MRI、PET、表格数据及标签
-        elif self.data_use == 'image':  # 如果 data_use 参数为 'image'
+        elif self.data_use == 'img':  # 如果 data_use 参数为 'img'
             return result['MRI'], result['PET'], label  # 返回 MRI、PET 图像及标签
         elif self.data_use == 'mri':  # 如果 data_use 参数为 'mri'
             return result['MRI'], label  # 仅返回 MRI 图像及标签
         elif self.data_use == 'pet':  # 如果 data_use 参数为 'pet'
             return result['PET'], label  # 仅返回 PET 图像及标签
         else:
-            raise ValueError("data_use 参数必须为 'all', 'image', 'mri' 或 'pet'")  # 如果 data_use 参数无效，则抛出错误
+            raise ValueError("data_use 参数必须为 'all', 'img', 'mri' 或 'pet'")  # 如果 data_use 参数无效，则抛出错误
 
     def ADNI_transform(self):
         '''
@@ -171,7 +171,7 @@ class ADNI(Dataset):
             """
 
             print('data augmentation...')
-            if self.data_use in ['all', 'image']:
+            if self.data_use in ['all', 'img']:
                 keys = ['MRI', 'PET']
             elif self.data_use == 'mri':
                 keys = ['MRI']
@@ -195,7 +195,7 @@ class ADNI(Dataset):
             """
 
             print('no data augmentation...')
-            if self.data_use in ['all', 'image']:
+            if self.data_use in ['all', 'img']:
                 keys = ['MRI', 'PET']
             elif self.data_use == 'mri':
                 keys = ['MRI']
@@ -258,12 +258,12 @@ class ADNI(Dataset):
                 count_vars = None
 
             # 根据 data_use 决定是否显示 MRI、PET
-            if self.data_use in ['all', 'image', 'mri']:
+            if self.data_use in ['all', 'img', 'mri']:
                 mri_path = sample['MRI']
             else:
                 mri_path = "N/A"
 
-            if self.data_use in ['all', 'image', 'pet']:
+            if self.data_use in ['all', 'img', 'pet']:
                 pet_path = sample['PET']
             else:
                 pet_path = "N/A"
@@ -300,8 +300,8 @@ def main():
     augment = False
     model = 'Ours'
 
-    # 在主函数中自定义 data_use 参数，可选值: 'all', 'image', 'mri', 'pet'
-    data_use = 'image'  # 例如只使用MRI数据
+    # 在主函数中自定义 data_use 参数，可选值: 'all', 'img', 'mri', 'pet'
+    data_use = 'img'  # 例如只使用MRI数据
 
     adni_dataset = ADNI(csv_file=label_filename,
                                mri_dir=mri_dir,
@@ -319,7 +319,7 @@ def main():
         print(f'Sample MRI shape: {sample_mri.shape}, PET shape: {sample_pet.shape}, Label: {sample_label}')
         print("Sample Table Data:")
         print(sample_table)
-    elif data_use == 'image':
+    elif data_use == 'img':
         sample_mri, sample_pet, sample_label = adni_dataset[0]
         print(f'Sample MRI shape: {sample_mri.shape}, PET shape: {sample_pet.shape}, Label: {sample_label}')
     elif data_use == 'mri':
