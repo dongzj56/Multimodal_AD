@@ -6,7 +6,7 @@ from utils.utils import mkdirs
 class Option:
     """This class defines options used during both training and CNN_PET_ADCN time. It also implements several helper
     functions such as parsing, printing, and saving the options. It also gathers additional options defined in
-    <modify_commandline_options> functions in both dataset class and models class.
+    <modify_commandline_options> functions in both dataset class and model class.
     """
 
     def __init__(self):
@@ -16,28 +16,72 @@ class Option:
 
     def initialize(self, parser):
         """Define the common options that are used in both training and CNN_PET_ADCN."""
+        # 实验名称
         parser.add_argument('--name', type=str, default='ADCN_CNN',
                             help='name of the experiment. It decides where to store samples and models')
-        parser.add_argument('--dataroot', type=str, default='/mnt/c/Users/YWZhang/Projects/Datasets/ADNI/ADNI_OLD')
-        parser.add_argument('--aug', type=str, default='True')
+        # 数据集根路径
+        parser.add_argument('--dataroot', type=str, default=rf'C:\Users\dongz\Desktop\adni_dataset')
+
+        # 是否启用数据增强
+        parser.add_argument('--aug', type=str, default='False')
+
+        # 模式选择
         parser.add_argument('--mode', type=str, default='train')
+
+        # 数据集
         parser.add_argument('--dataset', type=str, default='ADNI')
-        parser.add_argument('--models', type=str, default='Transformer')
+
+        # 模型
+        parser.add_argument('--model', type=str, default='Ours')
+
+        # 随机种子是否启用
         parser.add_argument('--randint', type=str, default='False')
+
+        # 额外样本
         parser.add_argument('--extra_sample', type=str, default='False')
+
+        # 模型保存目录
         parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints', help='models are saved here')
+
+        # 任务类型
         parser.add_argument('--task', type=str, default='ADCN')
+
+        # 使用模态数据
+        parser.add_argument('--data_use',type=str,default='img')
+
+        # 批次大小
         parser.add_argument('--batch_size', type=int, default=2, help='input batch size')
+
+        # 学习率
         parser.add_argument('--lr', type=float, default=1e-4, help='initial learning rate for SGD')
+
+        # 优化器
         parser.add_argument('--optimizer', type=str, default='Adam')
+
+        # 第一阶段训练轮次
         parser.add_argument('--stage1_epochs', type=int, default=20)
+
+        # 第二阶段
         parser.add_argument('--stage2_epochs', type=int, default=20)
+
+        # 权重衰减系数
         parser.add_argument('--weight_decay', type=float, default=0)
+
+        # 网络维度
         parser.add_argument('--dim', type=int, default=128)
+
+        # transformer编码器深度
         parser.add_argument('--trans_enc_depth', type=int, default=3)
+
+        # 交叉注意力层深度
         parser.add_argument('--cross_attn_depth', type=int, default=3)
+
+        # dropout比例
         parser.add_argument('--dropout', type=float, default=0)
+
+        # 网络初始化方式
         parser.add_argument('--init_type', type=str, default='normal', help='network initialization [normal | xavier | kaiming | orthogonal]')
+
         return parser
 
     def print_options(self, opt):

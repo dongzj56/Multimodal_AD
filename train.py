@@ -1,25 +1,26 @@
 # 导入必要的模块和包
-import glob  # 用于文件路径匹配
-import random  # 用于生成随机数
+import glob                # 用于文件路径匹配
+import random              # 用于生成随机数
 
-import numpy as np  # 数值计算库
-import torch  # PyTorch深度学习框架
-from datasets.ADNI import ADNI, ADNI_transform  # 导入ADNI数据集及其数据预处理函数
+import numpy as np         # 数值计算库
+import torch               # PyTorch深度学习框架
+from datasets.ADNI import ADNI,ADNI_transform1 # 导入ADNI数据集及其数据预处理函数
 from models.mymodel import model_ad, model_CNN_ad  # 导入两种模型定义：Transformer风格和CNN风格
-from options.option import Option  # 导入选项解析类，用于读取配置参数
+from options.option import Option                # 导入选项解析类，用于读取配置参数
 from sklearn.model_selection import KFold, train_test_split  # 导入交叉验证和数据集拆分函数
-from torch.utils.data import DataLoader  # 导入数据加载器
-from monai.data import Dataset  # MONAI数据集类，用于医学影像数据处理
-import ignite  # PyTorch Ignite框架，用于训练循环及指标计算
+from torch.utils.data import DataLoader          # 导入数据加载器
+from monai.data import Dataset                   # MONAI数据集类，用于医学影像数据处理
+import ignite                                    # PyTorch Ignite框架，用于训练循环及指标计算
 from ignite.metrics import Accuracy, Loss, Average, ConfusionMatrix  # 导入各类评估指标
-from ignite.engine import Engine, Events  # 定义训练和评估引擎以及事件
+from ignite.engine import Engine, Events         # 定义训练和评估引擎以及事件
 from ignite.contrib.handlers import ProgressBar  # 导入进度条显示工具
-from ignite.contrib.metrics import ROC_AUC  # 导入ROC_AUC指标计算
+from ignite.contrib.metrics import ROC_AUC       # 导入ROC_AUC指标计算
 from ignite.handlers import Checkpoint, global_step_from_engine, DiskSaver, LRScheduler  # 导入模型保存、调度等工具
 from utils.utils import getOptimizer, cal_confusion_metrics, mkdirs, get_dataset_weights  # 导入工具函数
-from torch.nn.functional import softmax  # 导入softmax函数，用于概率输出
-from utils.utils import Logger  # 导入日志记录工具
-import os  # 导入系统路径操作模块
+from torch.nn.functional import softmax         # 导入softmax函数，用于概率输出
+from utils.utils import Logger                    # 导入日志记录工具
+import os                                         # 导入系统路径操作模块
+
 
 # 程序主入口
 if __name__ == '__main__':
@@ -32,29 +33,47 @@ if __name__ == '__main__':
 
     # 加载ADNI数据集
     # 从指定数据根目录加载数据，同时传入标签文件和任务类型
-    ADNI_data = ADNI(dataroot=opt.dataroot, label_filename='ADNI.csv', task=opt.task).data_dict
+    mri_dir = os.path.join(opt.dataroot, 'MRI')  # 假设MRI数据存放在 'dataroot/MRI' 目录下
+    pet_dir = os.path.join(opt.dataroot, 'PET')  # 假设PET数据存放在 'dataroot/PET' 目录下
+    table_file = os.path.join(opt.dataroot, 'TABLE', 'ADNIMERGE.xlsx')  # 假设表格数据存放在 'dataroot/TABLE' 目录下
 
-    # 获取数据增强/预处理操作（训练和验证的不同变换）
-    train_transforms, val_transforms = ADNI_transform(opt.aug)
+    # 创建ADNI数据集对象
+    ADNI_data = ADNI(
+        label_file=os.path.join(opt.dataroot, 'ADNI.csv'),  # 标签文件路径
+        mri_dir=mri_dir,  # MRI数据目录
+        pet_dir=pet_dir,  # PET数据目录
+        table_file=table_file,  # 表格数据文件路径
+        task=opt.task,  # 任务类型
+        augment=(opt.aug == 'True'),  # 数据增强
+        data_use='img',  # 使用图像数据（MRI + PET）
+        model=opt.model  # 使用的模型类型
+    ).data_dict
+
+    # # 获取数据增强/预处理操作（训练和验证的不同变换）
+    train_transforms, val_transforms = ADNI_transform1()
 
     # 初始化主日志记录器，用于记录整个实验过程
     logger_main = Logger(save_dir)
 
     # 准备K折交叉验证的划分
     num_fold = 5  # 使用5折交叉验证
+
     seed = 1  # 默认随机种子设为1
     # 根据不同任务设置不同的随机种子
     if opt.task == 'ADCN':
         seed = 42
     elif opt.task == 'pMCIsMCI':
         seed = 996
+    elif opt.task == 'EMCILMCI':
+        seed = 1234
+
     # 如果配置参数中要求随机种子随机化，则重新生成一个随机种子
     if opt.randint == 'True':
         seed = random.randint(1, 1000)
     print(f'The random seed is {seed}')
+
     # 创建KFold对象，设置划分数、是否打乱数据和随机种子
     kfold_splits = KFold(n_splits=num_fold, shuffle=True, random_state=seed)
-
 
     # 根据交叉验证划分构建数据加载器
     def setup_dataflow(train_idx, test_idx):

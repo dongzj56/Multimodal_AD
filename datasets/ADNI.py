@@ -16,8 +16,9 @@ from monai.transforms import (
     EnsureTyped,
     SpatialPadd
 )
+from xgboost.testing import datasets
 
-from AdaptiveNormal import adaptive_normal  # 导入自适应归一化函数
+from datasets.AdaptiveNormal import adaptive_normal  # 导入自适应归一化函数
 
 
 # 定义数据类
@@ -27,11 +28,11 @@ class ADNI(Dataset):
     支持三个模态数据：MRI、PET图像和表格数据（生物样本数据、临床检查数据）。
     """
 
-    def __init__(self, csv_file, mri_dir, pet_dir, table_file, task='ADCN', augment=False, data_use='img',model='Ours'):
+    def __init__(self, label_file, mri_dir, pet_dir, table_file, task='ADCN', augment='False', data_use='img',model='Ours'):
         """
         初始化ADNI数据集类，读取数据和标签文件，并生成数据字典。
 
-        :param csv_file: 标签文件路径（包含 Group 和 Subject ID 等信息）
+        :param label_file: 标签文件路径（包含 Group 和 Subject ID 等信息）
         :param mri_dir: MRI图像所在目录
         :param pet_dir: PET图像所在目录
         :param table_file: 表格数据文件路径
@@ -44,7 +45,7 @@ class ADNI(Dataset):
                          'pet'   - 只使用 PET 影像
         :param model: 所用模型，可以用来调整不同数据集
         """
-        self.csv = pd.read_csv(csv_file)         # 读取标签 CSV 文件
+        self.label = pd.read_csv(label_file)         # 读取标签 CSV 文件
         self.mri_dir = mri_dir                     # MRI 数据目录
         self.pet_dir = pet_dir                     # PET 数据目录
         self.table_df = pd.read_excel(table_file)  # 读取包含所有患者表格数据的 Excel 文件
@@ -62,17 +63,17 @@ class ADNI(Dataset):
         根据指定的任务从标签 CSV 文件中提取数据标签。
         """
         if self.task == 'ADCN':
-            self.labels = self.csv[(self.csv['Group'] == 'AD') | (self.csv['Group'] == 'CN')]
+            self.labels = self.label[(self.label['Group'] == 'AD') | (self.label['Group'] == 'CN')]
             self.label_dict = {'CN': 0, 'AD': 1}
         elif self.task == 'pMCIsMCI':
-            self.labels = self.csv[(self.csv['Group'] == 'pMCI') | (self.csv['Group'] == 'sMCI')]
+            self.labels = self.label[(self.label['Group'] == 'pMCI') | (self.label['Group'] == 'sMCI')]
             self.label_dict = {'sMCI': 0, 'pMCI': 1}
         elif self.task == 'EMCILMCI':
-            self.labels = self.csv[(self.csv['Group'] == 'EMCI') | (self.csv['Group'] == 'LMCI')]
+            self.labels = self.label[(self.label['Group'] == 'EMCI') | (self.label['Group'] == 'LMCI')]
             self.label_dict = {'EMCI': 0, 'LMCI': 1}
         elif self.task == 'MCICN':
-            self.labels = self.csv[(self.csv['Group'] == 'pMCI') | (self.csv['Group'] == 'sMCI') |
-                                   (self.csv['Group'] == 'MCI') | (self.csv['Group'] == 'CN')]
+            self.labels = self.label[(self.label['Group'] == 'pMCI') | (self.label['Group'] == 'sMCI') |
+                                   (self.label['Group'] == 'MCI') | (self.label['Group'] == 'CN')]
             self.label_dict = {'CN': 0, 'sMCI': 1, 'pMCI': 1, 'MCI': 1}
 
     def _build_data_dict(self):
@@ -127,30 +128,26 @@ class ADNI(Dataset):
         if self.data_use == 'all':  # 如果 data_use 参数为 'all'
             result['TABLE'] = sample['TABLE']  # 将样本中的表格数据存入结果字典中
 
-        # 根据 data_use 设置预处理流程（仅针对图像模态）
-        if self.data_use in ['all', 'img', 'mri', 'pet']:  # 如果需要预处理图像数据（所有包含图像数据的情况）
-            # if self.augment:  # 如果启用了数据增强
-            #     transform = self.get_augmentation_transform()  # 获取数据增强的转换流程
-            # else:
-            #     transform = self.get_basic_transform()  # 否则获取基本的预处理转换流程
-            if self.model == 'Ours':
-                transform = self.ADNI_transform()
-            elif self.model == 'ADVIT':
-                transform = self.ADNI_transform_ADVIT()
-
-            # 构造临时字典，包含需要预处理的图像数据
-            image_data = {}  # 初始化一个空字典，用于存储待预处理的图像数据
-            if 'MRI' in result:  # 如果结果字典中包含 MRI 数据
-                image_data['MRI'] = result['MRI']  # 将 MRI 图像数据加入临时字典
-            if 'PET' in result:  # 如果结果字典中包含 PET 数据
-                image_data['PET'] = result['PET']  # 将 PET 图像数据加入临时字典
-
-            transformed = transform(image_data)  # 对临时字典中的图像数据应用预处理转换
-
-            if 'MRI' in transformed:  # 如果预处理后的数据中包含 MRI 数据
-                result['MRI'] = transformed['MRI']  # 更新结果字典中的 MRI 数据为预处理后的数据
-            if 'PET' in transformed:  # 如果预处理后的数据中包含 PET 数据
-                result['PET'] = transformed['PET']  # 更新结果字典中的 PET 数据为预处理后的数据
+        # # 根据 data_use 设置预处理流程（仅针对图像模态）
+        # if self.data_use in ['all', 'img', 'mri', 'pet']:  # 如果需要预处理图像数据（所有包含图像数据的情况）
+        #     # if self.augment:  # 如果启用了数据增强
+        #     #     transform = self.get_augmentation_transform()  # 获取数据增强的转换流程
+        #     # else:
+        #     #     transform = self.get_basic_transform()  # 否则获取基本的预处理转换流程
+        #
+        #     # 构造临时字典，包含需要预处理的图像数据
+        #     image_data = {}  # 初始化一个空字典，用于存储待预处理的图像数据
+        #     if 'MRI' in result:  # 如果结果字典中包含 MRI 数据
+        #         image_data['MRI'] = result['MRI']  # 将 MRI 图像数据加入临时字典
+        #     if 'PET' in result:  # 如果结果字典中包含 PET 数据
+        #         image_data['PET'] = result['PET']  # 将 PET 图像数据加入临时字典
+        #
+        #     transformed = transform(image_data)  # 对临时字典中的图像数据应用预处理转换
+        #
+        #     if 'MRI' in transformed:  # 如果预处理后的数据中包含 MRI 数据
+        #         result['MRI'] = transformed['MRI']  # 更新结果字典中的 MRI 数据为预处理后的数据
+        #     if 'PET' in transformed:  # 如果预处理后的数据中包含 PET 数据
+        #         result['PET'] = transformed['PET']  # 更新结果字典中的 PET 数据为预处理后的数据
 
         # 返回不同模态的数据，根据 data_use 参数返回相应的数据组合
         if self.data_use == 'all':  # 如果 data_use 参数为 'all'
@@ -163,90 +160,6 @@ class ADNI(Dataset):
             return result['PET'], label  # 仅返回 PET 图像及标签
         else:
             raise ValueError("data_use 参数必须为 'all', 'img', 'mri' 或 'pet'")  # 如果 data_use 参数无效，则抛出错误
-
-    def AdaptiveNormalization(self, keys):
-        """
-        自适应归一化方法的转换函数
-        """
-
-        def transform(data):
-            for key in keys:
-                img = data[key]  # 获取当前图像
-                img = adaptive_normal(img)  # 使用自适应归一化
-                data[key] = img  # 更新数据字典中的图像
-            return data
-
-        return transform
-
-    def ADNI_transform(self):
-        '''
-        训练数据集可选，测试数据集必须augment=False
-        '''
-        if self.augment == True:
-            """
-            返回包括数据增强操作的转换流程（仅针对图像模态）。
-            """
-
-            print('data augmentation...')
-            if self.data_use in ['all', 'img']:
-                keys = ['MRI', 'PET']
-            elif self.data_use == 'mri':
-                keys = ['MRI']
-            elif self.data_use == 'pet':
-                keys = ['PET']
-            else:
-                raise ValueError("data_use 参数错误")
-            return Compose([
-                EnsureChannelFirstd(keys=keys),  # 确保图像的通道维度位于第一个位置，通常是为了符合神经网络输入格式的要求（例如 CHW: Channel, Height, Width）
-                # 可选择线性归一化和自适应归一化
-                # ScaleIntensityd(keys=keys),  # 对图像进行强度标准化，将图像的强度值缩放到一个统一的范围，通常是 [0, 1] 或 [-1, 1]，便于后续处理和训练
-                self.AdaptiveNormalization(keys=keys),
-                RandFlipd(keys=keys, prob=0.3, spatial_axis=0), # 随机翻转图像，prob=0.3 表示有 30% 的概率进行翻转，spatial_axis=0 表示沿着 X 轴（左右方向）翻转
-                RandRotated(keys=keys, prob=0.3, range_x=0.05), # 随机旋转图像，prob=0.3 表示有 30% 的概率进行旋转，range_x=0.05 表示旋转角度范围为 -5% 到 +5%
-                RandZoomd(keys=keys, prob=0.3, min_zoom=0.95, max_zoom=1), # 随机缩放图像，prob=0.3 表示有 30% 的概率进行缩放，min_zoom=0.95 表示最小缩放比例为 95%，max_zoom=1 表示最大缩放比例为 100%
-                EnsureTyped(keys=keys)  # 确保图像数据类型为 PyTorch Tensor 或其他适用于模型输入的类型，通常是 float32 或 float64 类型
-
-            ])
-
-        else:
-            """
-            返回基本的预处理转换流程（仅针对图像模态）。
-            """
-
-            print('no data augmentation...')
-            if self.data_use in ['all', 'img']:
-                keys = ['MRI', 'PET']
-            elif self.data_use == 'mri':
-                keys = ['MRI']
-            elif self.data_use == 'pet':
-                keys = ['PET']
-            else:
-                raise ValueError("data_use 参数错误")
-            return Compose([
-                EnsureChannelFirstd(keys=keys), # 确保图像的通道维度位于第一个位置，通常是为了符合神经网络输入格式的要求（例如 CHW: Channel, Height, Width）
-                # ScaleIntensityd(keys=keys), # 对图像进行强度标准化，将图像的强度值缩放到一个统一的范围，通常是 [0, 1] 或 [-1, 1]，便于后续处理和训练
-                self.AdaptiveNormalization(keys=keys),
-                EnsureTyped(keys=keys) # 确保图像数据类型为 PyTorch Tensor 或其他适用于模型输入的类型，通常是 float32 或 float64 类型
-            ])
-
-    # 暂时用不到，待完善
-    def ADNI_transform_ADVIT(self):
-        # 不进行数据增强，只进行基本预处理
-        train_transform = Compose([
-            LoadImaged(keys=['MRI', 'PET']),
-            EnsureChannelFirstd(keys=['MRI', 'PET']),
-            ScaleIntensityd(keys=['MRI', 'PET']),
-            SpatialPadd(keys=['MRI', 'PET'], spatial_size=(128, 128, 79)),  # 填充图像到指定大小
-            EnsureTyped(keys=['MRI', 'PET'])
-        ])
-        test_transform = Compose([
-            LoadImaged(keys=['MRI', 'PET']),
-            EnsureChannelFirstd(keys=['MRI', 'PET']),
-            ScaleIntensityd(keys=['MRI', 'PET']),
-            SpatialPadd(keys=['MRI', 'PET'], spatial_size=(128, 128, 79)),
-            EnsureTyped(keys=['MRI', 'PET'])
-        ])
-        return train_transform, test_transform
 
     def print_dataset_info(self, start=0, end=None):
         """
@@ -306,6 +219,192 @@ class ADNI(Dataset):
         print(df)
         print(f"\n{'=' * 40}")
 
+    def get_weights(self):
+        # 返回不同类别的样本数，用于计算类别权重
+        label_list = []
+        for item in self.data_dict:
+            label_list.append(item['label'])
+        return float(label_list.count(0)), float(label_list.count(1))
+
+def AdaptiveNormalization(keys):
+    """
+    自适应归一化方法的转换函数
+    """
+
+    def transform(data):
+        for key in keys:
+            img = data[key]  # 获取当前图像
+            img = adaptive_normal(img)  # 使用自适应归一化
+            data[key] = img  # 更新数据字典中的图像
+        return data
+
+    return transform
+
+# =============================================================================
+# ADNI_transform：定义用于数据增强和预处理的转换函数。
+# 根据是否进行数据增强（aug='True'）来选择不同的转换方式。
+# =============================================================================
+def ADNI_transform1(augment = 'False',data_use = 'img'):
+    '''
+    训练数据集可选，测试数据集必须augment=False
+    '''
+    if augment == 'True':
+        """
+        返回包括数据增强操作的转换流程（仅针对图像模态）。
+        """
+
+        print('data augmentation...')
+        if data_use in ['all', 'img']:
+            keys = ['MRI', 'PET']
+        elif data_use == 'mri':
+            keys = ['MRI']
+        elif data_use == 'pet':
+            keys = ['PET']
+        else:
+            raise ValueError("data_use 参数错误")
+
+        train_transform = Compose([
+            EnsureChannelFirstd(keys=keys),  # 确保图像的通道维度位于第一个位置，通常是为了符合神经网络输入格式的要求（例如 CHW: Channel, Height, Width）
+            # 可选择线性归一化和自适应归一化
+            # ScaleIntensityd(keys=keys),  # 对图像进行强度标准化，将图像的强度值缩放到一个统一的范围，通常是 [0, 1] 或 [-1, 1]，便于后续处理和训练
+            AdaptiveNormalization(keys=keys),
+            RandFlipd(keys=keys, prob=0.3, spatial_axis=0), # 随机翻转图像，prob=0.3 表示有 30% 的概率进行翻转，spatial_axis=0 表示沿着 X 轴（左右方向）翻转
+            RandRotated(keys=keys, prob=0.3, range_x=0.05), # 随机旋转图像，prob=0.3 表示有 30% 的概率进行旋转，range_x=0.05 表示旋转角度范围为 -5% 到 +5%
+            RandZoomd(keys=keys, prob=0.3, min_zoom=0.95, max_zoom=1), # 随机缩放图像，prob=0.3 表示有 30% 的概率进行缩放，min_zoom=0.95 表示最小缩放比例为 95%，max_zoom=1 表示最大缩放比例为 100%
+            EnsureTyped(keys=keys)  # 确保图像数据类型为 PyTorch Tensor 或其他适用于模型输入的类型，通常是 float32 或 float64 类型
+
+        ])
+
+        test_transform = Compose([
+            EnsureChannelFirstd(keys=keys),  # 确保图像的通道维度位于第一个位置，通常是为了符合神经网络输入格式的要求（例如 CHW: Channel, Height, Width）
+            # ScaleIntensityd(keys=keys), # 对图像进行强度标准化，将图像的强度值缩放到一个统一的范围，通常是 [0, 1] 或 [-1, 1]，便于后续处理和训练
+            AdaptiveNormalization(keys=keys),
+            EnsureTyped(keys=keys)  # 确保图像数据类型为 PyTorch Tensor 或其他适用于模型输入的类型，通常是 float32 或 float64 类型
+        ])
+
+    else:
+        """
+        返回基本的预处理转换流程（仅针对图像模态）。
+        """
+
+        print('no data augmentation...')
+        if data_use in ['all', 'img']:
+            keys = ['MRI', 'PET']
+        elif data_use == 'mri':
+            keys = ['MRI']
+        elif data_use == 'pet':
+            keys = ['PET']
+        else:
+            raise ValueError("data_use 参数错误")
+
+        train_transform =  Compose([
+            EnsureChannelFirstd(keys=keys), # 确保图像的通道维度位于第一个位置，通常是为了符合神经网络输入格式的要求（例如 CHW: Channel, Height, Width）
+            # ScaleIntensityd(keys=keys), # 对图像进行强度标准化，将图像的强度值缩放到一个统一的范围，通常是 [0, 1] 或 [-1, 1]，便于后续处理和训练
+            AdaptiveNormalization(keys=keys),
+            EnsureTyped(keys=keys) # 确保图像数据类型为 PyTorch Tensor 或其他适用于模型输入的类型，通常是 float32 或 float64 类型
+        ])
+
+        test_transform = Compose([
+            EnsureChannelFirstd(keys=keys),  # 确保图像的通道维度位于第一个位置，通常是为了符合神经网络输入格式的要求（例如 CHW: Channel, Height, Width）
+            # ScaleIntensityd(keys=keys), # 对图像进行强度标准化，将图像的强度值缩放到一个统一的范围，通常是 [0, 1] 或 [-1, 1]，便于后续处理和训练
+            AdaptiveNormalization(keys=keys),
+            EnsureTyped(keys=keys)  # 确保图像数据类型为 PyTorch Tensor 或其他适用于模型输入的类型，通常是 float32 或 float64 类型
+        ])
+
+    return train_transform, test_transform
+
+
+
+def ADNI_transform2(aug='True'):
+    if aug == 'True':
+        # 如果进行数据增强，进行一系列的图像预处理和增强操作
+        train_transform = Compose([
+                    LoadImaged(keys=['MRI', 'PET']),  # 加载 MRI 和 PET 图像
+                    EnsureChannelFirstd(keys=['MRI', 'PET']),  # 确保通道维度为第一个
+                    ScaleIntensityd(keys=['MRI', 'PET']),  # 标准化图像强度
+                    # 图像增强操作
+                    RandFlipd(keys=['MRI', 'PET'], prob=0.3, spatial_axis=0),  # 随机翻转
+                    RandRotated(keys=['MRI', 'PET'], prob=0.3, range_x=0.05),  # 随机旋转
+                    RandZoomd(keys=['MRI', 'PET'], prob=0.3, min_zoom=0.95, max_zoom=1),  # 随机缩放
+                    EnsureTyped(keys=['MRI', 'PET'])  # 确保数据类型正确
+                ])
+    else:
+        # 如果不进行数据增强，仅进行基本的图像预处理
+        train_transform = Compose([
+                    LoadImaged(keys=['MRI', 'PET']),
+                    EnsureChannelFirstd(keys=['MRI', 'PET']),
+                    ScaleIntensityd(keys=['MRI', 'PET']),
+                    EnsureTyped(keys=['MRI', 'PET'])
+                ])
+    # 测试时使用相同的预处理（不进行增强）
+    test_transform = Compose([
+                LoadImaged(keys=['MRI', 'PET']),
+                EnsureChannelFirstd(keys=['MRI', 'PET']),
+                ScaleIntensityd(keys=['MRI', 'PET']),
+                EnsureTyped(keys=['MRI', 'PET'])
+            ])
+    return train_transform, test_transform
+
+
+# =============================================================================
+# ADNI_transform_Mnet：定义用于数据增强和预处理的转换函数，适用于 Mnet 模型。
+# 包含对图像进行填充（SpatialPadd），确保每个图像尺寸一致。
+# =============================================================================
+def ADNI_transform_Mnet(aug='True'):
+    if aug == 'True':
+        # 如果进行数据增强，进行一系列的图像预处理和增强操作
+        train_transform = Compose([
+                    LoadImaged(keys=['MRI', 'PET']),
+                    EnsureChannelFirstd(keys=['MRI', 'PET']),
+                    ScaleIntensityd(keys=['MRI', 'PET']),
+                    SpatialPadd(keys=['MRI', 'PET'], spatial_size=(91,109,91)),  # 填充图像到指定大小
+                    # 图像增强操作
+                    RandFlipd(keys=['MRI', 'PET'], prob=0.3, spatial_axis=0),
+                    RandRotated(keys=['MRI', 'PET'], prob=0.3, range_x=0.05),
+                    RandZoomd(keys=['MRI', 'PET'], prob=0.3, min_zoom=0.95, max_zoom=1),
+                    EnsureTyped(keys=['MRI', 'PET'])
+                ])
+    else:
+        # 如果不进行数据增强，仅进行基本的图像预处理和填充
+        train_transform = Compose([
+                    LoadImaged(keys=['MRI', 'PET']),
+                    EnsureChannelFirstd(keys=['MRI', 'PET']),
+                    ScaleIntensityd(keys=['MRI', 'PET']),
+                    SpatialPadd(keys=['MRI', 'PET'], spatial_size=(91, 109, 91)),
+                    EnsureTyped(keys=['MRI', 'PET'])
+                ])
+    # 测试时使用相同的预处理（不进行增强）
+    test_transform = Compose([
+                LoadImaged(keys=['MRI', 'PET']),
+                EnsureChannelFirstd(keys=['MRI', 'PET']),
+                ScaleIntensityd(keys=['MRI', 'PET']),
+                SpatialPadd(keys=['MRI', 'PET'], spatial_size=(91, 109, 91)),
+                EnsureTyped(keys=['MRI', 'PET'])
+            ])
+    return train_transform, test_transform
+
+
+# =============================================================================
+# ADNI_transform_ADVIT：定义用于数据预处理的转换函数，适用于 ADVIT 模型。
+# 图像尺寸被调整为 (128, 128, 79)，并未进行数据增强。
+# =============================================================================
+def ADNI_transform_ADVIT(aug='True'):
+    # 不进行数据增强，只进行基本预处理
+    train_transform = Compose([
+                    LoadImaged(keys=['MRI', 'PET']),
+                    EnsureChannelFirstd(keys=['MRI', 'PET']),
+                    ScaleIntensityd(keys=['MRI', 'PET']),
+                    SpatialPadd(keys=['MRI', 'PET'], spatial_size=(128, 128, 79)),  # 填充图像到指定大小
+                    EnsureTyped(keys=['MRI', 'PET'])
+                ])
+    test_transform = Compose([
+                LoadImaged(keys=['MRI', 'PET']),
+                EnsureChannelFirstd(keys=['MRI', 'PET']),
+                ScaleIntensityd(keys=['MRI', 'PET']),
+                SpatialPadd(keys=['MRI', 'PET'], spatial_size=(128, 128, 79)),
+                EnsureTyped(keys=['MRI', 'PET'])
+            ])
+    return train_transform, test_transform
 
 def main():
     """
@@ -317,13 +416,13 @@ def main():
     pet_dir = os.path.join(dataroot, 'PET')
     table_file = os.path.join(dataroot, r'TABLE\ADNIMERGE.xlsx')  # 表格数据存放在Excel文件中
     task = 'ADCN'
-    augment = False
+    augment = 'False'
     model = 'Ours'
 
     # 在主函数中自定义 data_use 参数，可选值: 'all', 'img', 'mri', 'pet'
     data_use = 'img'  # 例如只使用MRI数据
 
-    adni_dataset = ADNI(csv_file=label_filename,
+    adni_dataset = ADNI(label_file=label_filename,
                                mri_dir=mri_dir,
                                pet_dir=pet_dir,
                                table_file=table_file,
@@ -350,6 +449,23 @@ def main():
         print(f'Sample PET shape: {sample_pet.shape}, Label: {sample_label}')
 
     adni_dataset.print_dataset_info(start=0, end=5)
+
+    train_transform, test_transform = ADNI_transform1(augment='True', data_use='img')
+
+    # 输出 train_transform 中的每个转换操作的信息
+    print("Train Transform Operations:")
+    for i, transform in enumerate(train_transform.transforms):
+        print(f"Operation {i + 1}: {transform.__class__.__name__}")
+        print(f"Parameters: {transform}")
+        print("-" * 50)
+
+    # 输出 test_transform 中的每个转换操作的信息
+    print("\nTest Transform Operations:")
+    for i, transform in enumerate(test_transform.transforms):
+        print(f"Operation {i + 1}: {transform.__class__.__name__}")
+        print(f"Parameters: {transform}")
+        print("-" * 50)
+
 
 if __name__ == '__main__':
     main()

@@ -1,0 +1,24 @@
+----------------- Options ---------------
+                      aug: False                         
+               batch_size: 2                             
+          checkpoints_dir: ./checkpoints                 
+         cross_attn_depth: 3                             
+                 data_use: img                           
+                 dataroot: C:\Users\dongz\Desktop\adni_dataset
+                  dataset: ADNI                          
+                      dim: 128                           
+                  dropout: 0                             
+             extra_sample: False                         
+                init_type: normal                        
+                       lr: 0.0001                        
+                     mode: train                         
+                    model: CNN                           	[default: Ours]
+                     name: ADCN_CNN                      
+                optimizer: Adam                          
+                  randint: False                         
+            stage1_epochs: 20                            
+            stage2_epochs: 20                            
+                     task: ADCN                          
+          trans_enc_depth: 3                             
+             weight_decay: 0                             
+
