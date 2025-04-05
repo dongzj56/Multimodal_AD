@@ -17,6 +17,9 @@ from monai.transforms import (
     SpatialPadd
 )
 
+from AdaptiveNormal import adaptive_normal  # 导入自适应归一化函数
+
+
 # 定义数据类
 class ADNI(Dataset):
     """
@@ -161,6 +164,20 @@ class ADNI(Dataset):
         else:
             raise ValueError("data_use 参数必须为 'all', 'img', 'mri' 或 'pet'")  # 如果 data_use 参数无效，则抛出错误
 
+    def AdaptiveNormalization(self, keys):
+        """
+        自适应归一化方法的转换函数
+        """
+
+        def transform(data):
+            for key in keys:
+                img = data[key]  # 获取当前图像
+                img = adaptive_normal(img)  # 使用自适应归一化
+                data[key] = img  # 更新数据字典中的图像
+            return data
+
+        return transform
+
     def ADNI_transform(self):
         '''
         训练数据集可选，测试数据集必须augment=False
@@ -181,7 +198,9 @@ class ADNI(Dataset):
                 raise ValueError("data_use 参数错误")
             return Compose([
                 EnsureChannelFirstd(keys=keys),  # 确保图像的通道维度位于第一个位置，通常是为了符合神经网络输入格式的要求（例如 CHW: Channel, Height, Width）
-                ScaleIntensityd(keys=keys),  # 对图像进行强度标准化，将图像的强度值缩放到一个统一的范围，通常是 [0, 1] 或 [-1, 1]，便于后续处理和训练
+                # 可选择线性归一化和自适应归一化
+                # ScaleIntensityd(keys=keys),  # 对图像进行强度标准化，将图像的强度值缩放到一个统一的范围，通常是 [0, 1] 或 [-1, 1]，便于后续处理和训练
+                self.AdaptiveNormalization(keys=keys),
                 RandFlipd(keys=keys, prob=0.3, spatial_axis=0), # 随机翻转图像，prob=0.3 表示有 30% 的概率进行翻转，spatial_axis=0 表示沿着 X 轴（左右方向）翻转
                 RandRotated(keys=keys, prob=0.3, range_x=0.05), # 随机旋转图像，prob=0.3 表示有 30% 的概率进行旋转，range_x=0.05 表示旋转角度范围为 -5% 到 +5%
                 RandZoomd(keys=keys, prob=0.3, min_zoom=0.95, max_zoom=1), # 随机缩放图像，prob=0.3 表示有 30% 的概率进行缩放，min_zoom=0.95 表示最小缩放比例为 95%，max_zoom=1 表示最大缩放比例为 100%
@@ -205,7 +224,8 @@ class ADNI(Dataset):
                 raise ValueError("data_use 参数错误")
             return Compose([
                 EnsureChannelFirstd(keys=keys), # 确保图像的通道维度位于第一个位置，通常是为了符合神经网络输入格式的要求（例如 CHW: Channel, Height, Width）
-                ScaleIntensityd(keys=keys), # 对图像进行强度标准化，将图像的强度值缩放到一个统一的范围，通常是 [0, 1] 或 [-1, 1]，便于后续处理和训练
+                # ScaleIntensityd(keys=keys), # 对图像进行强度标准化，将图像的强度值缩放到一个统一的范围，通常是 [0, 1] 或 [-1, 1]，便于后续处理和训练
+                self.AdaptiveNormalization(keys=keys),
                 EnsureTyped(keys=keys) # 确保图像数据类型为 PyTorch Tensor 或其他适用于模型输入的类型，通常是 float32 或 float64 类型
             ])
 
