@@ -44,12 +44,15 @@ if __name__ == '__main__':
         label_file=os.path.join(opt.dataroot, 'ADNI.csv'),  # 标签文件路径
         mri_dir=mri_dir,  # MRI数据目录
         pet_dir=pet_dir,  # PET数据目录
+        table_file=table_file,  # 表格数据文件路径
         task=opt.task,  # 任务类型
-        augment=(opt.aug == False),  # 数据增强
+        augment=(opt.aug == 'True'),  # 数据增强
+        data_use='img',  # 使用图像数据（MRI + PET）
+        model=opt.model  # 使用的模型类型
     ).data_dict
 
     # # 获取数据增强/预处理操作（训练和验证的不同变换）
-    train_transforms, val_transforms = ADNI_transform(opt.aug)
+    train_transforms, val_transforms = ADNI_transform2(opt.aug)
 
     # 初始化主日志记录器，用于记录整个实验过程
     logger_main = Logger(save_dir)

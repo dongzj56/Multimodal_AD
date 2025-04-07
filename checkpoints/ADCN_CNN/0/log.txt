@@ -1,0 +1,17 @@
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+================ ./checkpoints\ADCN_CNN\0\log.txt ================
+-------------------------------------------------
+Current learning rate: 0.0001
+Training Results - Epoch[1] 
+ce_loss: nan ad_loss: nan accuracy: 0.4503 MRIaccuracy: 0.0066 PETaccuracy: 1.0000 
