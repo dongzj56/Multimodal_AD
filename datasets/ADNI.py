@@ -46,7 +46,13 @@ class ADNI(Dataset):
         if self.task == 'ADCN':
             self.labels = self.label[(self.label['Group'] == 'AD') | (self.label['Group'] == 'CN')]
             self.label_dict = {'CN': 0, 'AD': 1}
-        elif self.task == 'EMCILMCI':
+        if self.task == 'CNEMCI':
+            self.labels = self.label[(self.label['Group'] == 'CN') | (self.label['Group'] == 'EMCI')]
+            self.label_dict = {'CN': 0, 'EMCI': 1}
+        if self.task == 'LMCIAD':
+            self.labels = self.label[(self.label['Group'] == 'LMCI') | (self.label['Group'] == 'AD')]
+            self.label_dict = {'LMCI': 0, 'AD': 1}
+        if self.task == 'EMCILMCI':
             self.labels = self.label[(self.label['Group'] == 'EMCI') | (self.label['Group'] == 'LMCI')]
             self.label_dict = {'EMCI': 0, 'LMCI': 1}
         # 可根据需要添加其他任务类别
@@ -209,7 +215,7 @@ def main():
     test_dataset.print_dataset_info(start=0, end=5)
 
     # 获取数据增强操作
-    train_transform, test_transform = ADNI_transform(augment=True)
+    train_transform, test_transform = ADNI_transform(augment=False)
 
     # 输出 train_transform 中的每个转换操作的信息
     print("Train Transform Operations:")
@@ -227,3 +233,9 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+
+
+
+
