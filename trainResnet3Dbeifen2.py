@@ -39,12 +39,7 @@ def train_model(task='ADCN', num_epochs=50, batch_size=4, lr=1e-3, checkpoint_di
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = ResNet3D(in_channels=2, num_classes=2).to(device)
     criterion = nn.CrossEntropyLoss()
-
-    # Optimizer with SGD and momentum (can experiment with Adam as well)
-    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
-
-    # Learning rate scheduler
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.7)  # Decay every 10 epochs
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
     # Load dataset
     dataroot = rf'adni_dataset'
@@ -100,11 +95,8 @@ def train_model(task='ADCN', num_epochs=50, batch_size=4, lr=1e-3, checkpoint_di
             outputs = model(inputs)
             loss = criterion(outputs, targets)
             loss.backward()
-
-            # Gradient clipping
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Clip gradients
-
             optimizer.step()
+
             epoch_loss += loss.item()
 
         # Validation phase
@@ -143,7 +135,7 @@ def train_model(task='ADCN', num_epochs=50, batch_size=4, lr=1e-3, checkpoint_di
                      f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
                      f"AUC: {val_auc:.4f} | Acc: {val_acc:.4f}")
 
-        # Save the results into the log DataFrame
+        # Save the results into the log DataFrame using pd.concat
         log_df = pd.concat([log_df, pd.DataFrame([{
             'epoch': epoch + 1,
             'train_loss': train_loss,
@@ -170,9 +162,6 @@ def train_model(task='ADCN', num_epochs=50, batch_size=4, lr=1e-3, checkpoint_di
             best_model_filename = os.path.join(checkpoint_dir, 'best_model.pth')
             torch.save(best_model_state, best_model_filename)
             logging.info(f"New best model saved with accuracy: {best_val_acc:.4f}")
-
-        # Step the learning rate scheduler
-        scheduler.step()
 
     logging.info("Training complete!")
 
@@ -210,7 +199,6 @@ def train_model(task='ADCN', num_epochs=50, batch_size=4, lr=1e-3, checkpoint_di
     test_acc = accuracy_score(all_labels, (np.array(all_preds) > 0.5).astype(int))
 
     logging.info(f"Test Loss: {test_loss:.4f} | Test AUC: {test_auc:.4f} | Test Acc: {test_acc:.4f}")
-
 
 
 

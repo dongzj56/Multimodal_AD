@@ -34,7 +34,7 @@ def save_checkpoint(state, filename):
 
 
 def train_model(task='ADCN', num_epochs=50, batch_size=4, lr=1e-3, checkpoint_dir='./checkpoints',
-                log_file='training_log.csv'):
+                log_file='training_log1.csv'):
     # Initialize model
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = ResNet3D(in_channels=2, num_classes=2).to(device)
@@ -204,4 +204,4 @@ def train_model(task='ADCN', num_epochs=50, batch_size=4, lr=1e-3, checkpoint_di
 
 if __name__ == "__main__":
     train_model(task='ADCN', num_epochs=50, batch_size=4, lr=1e-3, checkpoint_dir='./checkpoints',
-                log_file='training_log.csv')
+                log_file='training_log1.csv')
