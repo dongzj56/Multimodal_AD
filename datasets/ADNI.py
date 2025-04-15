@@ -30,11 +30,11 @@ class ADNI(Dataset):
         :param task: 任务类型，用于选择不同标签类别
         :param augment: 是否进行数据增强
         """
-        self.label = pd.read_csv(label_file)  # 读取标签 CSV 文件
-        self.mri_dir = mri_dir  # MRI 数据目录
-        self.pet_dir = pet_dir  # PET 数据目录
-        self.task = task  # 任务类型
-        self.augment = augment  # 是否进行数据增强
+        self.label = pd.read_csv(label_file)  
+        self.mri_dir = mri_dir
+        self.pet_dir = pet_dir
+        self.task = task
+        self.augment = augment
 
         self._process_labels()
         self._build_data_dict()
