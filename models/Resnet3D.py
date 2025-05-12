@@ -1,94 +1,107 @@
 import torch
+from models import resnet
 import torch.nn as nn
-import torch.nn.functional as F
 
+def generate_model(model_type='resnet', model_depth=50,
+                   input_W=224, input_H=224, input_D=224, resnet_shortcut='B',
+                   no_cuda=False, gpu_id=[0],
+                   pretrain_path = 'pretrain/resnet_50.pth',
+                   nb_class=1):
+    assert model_type in [
+        'resnet'
+    ]
 
-class ResNet3D(nn.Module):
-    def __init__(self, in_channels=1, num_classes=2):
-        super(ResNet3D, self).__init__()
-        # 初始卷积块 (对应Lasagne的Block 1)
-        self.conv1a = nn.Conv3d(in_channels, 32, kernel_size=3, padding=1)
-        self.bn1a = nn.BatchNorm3d(32)
-        self.conv1b = nn.Conv3d(32, 32, kernel_size=3, padding=1)
-        self.bn1b = nn.BatchNorm3d(32)
-        self.conv1c = nn.Conv3d(32, 64, kernel_size=3, stride=2, padding=1)
+    if model_type == 'resnet':
+        assert model_depth in [10, 18, 34, 50, 101, 152, 200]
 
-        # VoxRes模块
-        self.voxres2 = self._make_voxres_block(64, 64)
-        self.voxres3 = self._make_voxres_block(64, 64)
-        self.bn4 = nn.BatchNorm3d(64)
-        self.conv4 = nn.Conv3d(64, 64, kernel_size=3, stride=2, padding=1)
+    if model_depth == 10:
+        model = resnet.resnet10(
+            sample_input_W=input_W,
+            sample_input_H=input_H,
+            sample_input_D=input_D,
+            shortcut_type=resnet_shortcut,
+            no_cuda=no_cuda,
+            num_seg_classes=1)
+        fc_input = 256
+    elif model_depth == 18:
+        model = resnet.resnet18(
+            sample_input_W=input_W,
+            sample_input_H=input_H,
+            sample_input_D=input_D,
+            shortcut_type=resnet_shortcut,
+            no_cuda=no_cuda,
+            num_seg_classes=1)
+        fc_input = 512
+    elif model_depth == 34:
+        model = resnet.resnet34(
+            sample_input_W=input_W,
+            sample_input_H=input_H,
+            sample_input_D=input_D,
+            shortcut_type=resnet_shortcut,
+            no_cuda=no_cuda,
+            num_seg_classes=1)
+        fc_input = 512
+    elif model_depth == 50:
+        model = resnet.resnet50(
+            sample_input_W=input_W,
+            sample_input_H=input_H,
+            sample_input_D=input_D,
+            shortcut_type=resnet_shortcut,
+            no_cuda=no_cuda,
+            num_seg_classes=1)
+        fc_input = 2048
+    elif model_depth == 101:
+        model = resnet.resnet101(
+            sample_input_W=input_W,
+            sample_input_H=input_H,
+            sample_input_D=input_D,
+            shortcut_type=resnet_shortcut,
+            no_cuda=no_cuda,
+            num_seg_classes=1)
+        fc_input = 2048
+    elif model_depth == 152:
+        model = resnet.resnet152(
+            sample_input_W=input_W,
+            sample_input_H=input_H,
+            sample_input_D=input_D,
+            shortcut_type=resnet_shortcut,
+            no_cuda=no_cuda,
+            num_seg_classes=1)
+        fc_input = 2048
+    elif model_depth == 200:
+        model = resnet.resnet200(
+            sample_input_W=input_W,
+            sample_input_H=input_H,
+            sample_input_D=input_D,
+            shortcut_type=resnet_shortcut,
+            no_cuda=no_cuda,
+            num_seg_classes=1)
+        fc_input = 2048
 
-        self.voxres5 = self._make_voxres_block(64, 64)
-        self.voxres6 = self._make_voxres_block(64, 64)
+    model.conv_seg = nn.Sequential(nn.AdaptiveAvgPool3d((1, 1, 1)), nn.Flatten(),
+                                   nn.Linear(in_features=fc_input, out_features=nb_class, bias=True))
 
-        # 最终分类层
-        self.pool10 = nn.AdaptiveAvgPool3d(1)
-        self.fc11 = nn.Linear(64, 128)
-        self.prob = nn.Linear(128, num_classes)
-
-        # 初始化参数
-        self._initialize_weights()
-
-    def _make_voxres_block(self, in_channels, out_channels):
-        return nn.Sequential(
-            VoxResModule(in_channels, out_channels)
-        )
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv3d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm3d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-    def forward(self, x):
-        # Block 1
-        x = F.relu(self.bn1a(self.conv1a(x)))
-        x = F.relu(self.bn1b(self.conv1b(x)))
-        x = self.conv1c(x)
-
-        # VoxRes模块
-        x = self.voxres2(x)
-        x = self.voxres3(x)
-        x = F.relu(self.bn4(x))
-        x = self.conv4(x)
-
-        x = self.voxres5(x)
-        x = self.voxres6(x)
-
-        # 分类头
-        x = self.pool10(x)
-        x = torch.flatten(x, 1)
-        x = F.relu(self.fc11(x))
-        x = self.prob(x)
-        return x
-
-
-class VoxResModule(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm3d(out_channels)
-        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm3d(out_channels)
-
-        if in_channels != out_channels:
-            self.shortcut = nn.Sequential(
-                nn.Conv3d(in_channels, out_channels, kernel_size=1),
-                nn.BatchNorm3d(out_channels)
-            )
+    if not no_cuda:
+        if len(gpu_id) > 1:
+            model = model.cuda()
+            model = nn.DataParallel(model, device_ids=gpu_id)
+            net_dict = model.state_dict()
         else:
-            self.shortcut = nn.Identity()
+            import os
+            os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu_id[0])
+            model = model.cuda()
+            model = nn.DataParallel(model, device_ids=None)
+            net_dict = model.state_dict()
+    else:
+        net_dict = model.state_dict()
 
-    def forward(self, x):
-        identity = self.shortcut(x)
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = F.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out += identity
-        out = F.relu(out)  # 相加后应用ReLU
-        return out
+    print('loading pretrained model {}'.format(pretrain_path))
+    pretrain = torch.load(pretrain_path)
+    pretrain_dict = {k: v for k, v in pretrain['state_dict'].items() if k in net_dict.keys()}
+    # k 是每一层的名称，v是权重数值
+    net_dict.update(pretrain_dict) #字典 dict2 的键/值对更新到 dict 里。
+    model.load_state_dict(net_dict) #model.load_state_dict()函数把加载的权重复制到模型的权重中去
+
+    print("-------- pre-train model load successfully --------")
+
+    return model
