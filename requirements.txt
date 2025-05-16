@@ -1,4 +1,4 @@
-torch=2.4.1
+torch==2.4.1
 tqdm==4.67.1
 monai==1.4.0
 pandas==2.2.3
