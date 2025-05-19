@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+=======
+torch==2.4.1
+>>>>>>> 6d19f58044b2424b72444200f8ae5548a2bfdde1
 tqdm==4.67.1
 monai==1.4.0
 pandas==2.2.3
@@ -7,4 +11,7 @@ matplotlib==3.10.3
 tensorboard==2.19.0
 nibabel==5.3.2
 SimpleITK==2.5.0
+<<<<<<< HEAD
 pydicom==3.0.1
+=======
+>>>>>>> 6d19f58044b2424b72444200f8ae5548a2bfdde1
