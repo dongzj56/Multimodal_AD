@@ -23,7 +23,7 @@ class ADNI(Dataset):
         """
         初始化ADNI数据集类，读取数据和标签文件，并生成数据字典
 
-        :param label_file: 标签文件路径（包含 Group 和 Subject ID 等信息）
+        :param label_file: 标签文件路径（包含 Group 和 Subject_ID 等信息）
         :param mri_dir: MRI图像所在目录
         :param task: 任务类型，用于选择不同标签类别
         :param augment: 是否进行数据增强
@@ -52,7 +52,7 @@ class ADNI(Dataset):
             self.label_dict = {'EMCI': 0, 'LMCI': 1}
 
     def _build_data_dict(self):
-        subject_list = self.labels['Subject ID'].tolist()
+        subject_list = self.labels['Subject_ID'].tolist()
         label_list = self.labels['Group'].tolist()
         self.data_dict = [
             {
