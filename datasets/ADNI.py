@@ -162,8 +162,8 @@ def ADNI_transform(augment=False):
 
 def main():
     # ------------- 基本路径与任务 -------------
-    dataroot        = r'C:\Users\dongz\Desktop\adni_dataset\MRI_GM_112_136_112'
-    label_filename  = r'C:\Users\dongz\Desktop\adni_dataset\ADNI_902.csv'
+    dataroot        = r'C:\Users\dongzj\Desktop\adni_dataset\MRI_GM_112_136_112'
+    label_filename  = r'C:\Users\dongzj\Desktop\adni_dataset\ADNI_902.csv'
     mri_dir         = dataroot              # 已在 ADNI 内部拼 path
     task            = 'ADCN'        # 四分类
 
