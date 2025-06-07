@@ -1,7 +1,11 @@
 import os
 import pandas as pd
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset,DataLoader, Subset
+from collections import Counter
+import torch
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold
+
 from monai.transforms import (
     EnsureChannelFirstd,
     Compose,
@@ -28,28 +32,59 @@ class ADNI(Dataset):
         :param task: 任务类型，用于选择不同标签类别
         :param augment: 是否进行数据增强
         """
-        self.label = pd.read_csv(label_file)
+        # self.label = pd.read_csv(label_file)
+        self.label = pd.read_csv(label_file, encoding='ISO-8859-1')
         self.mri_dir = mri_dir
         self.task = task
         self.augment = augment
 
         self._process_labels()
         self._build_data_dict()
+        self._print_class_counts()
+
+    # def _process_labels(self):
+    #     """根据指定的任务从标签 CSV 文件中提取数据标签"""
+    #     if self.task == 'ADCN':
+    #         self.labels = self.label[(self.label['Group'] == 'AD') | (self.label['Group'] == 'CN')]
+    #         self.label_dict = {'CN': 0, 'AD': 1}
+    #     if self.task == 'CNEMCI':
+    #         self.labels = self.label[(self.label['Group'] == 'CN') | (self.label['Group'] == 'EMCI')]
+    #         self.label_dict = {'CN': 0, 'EMCI': 1}
+    #     if self.task == 'LMCIAD':
+    #         self.labels = self.label[(self.label['Group'] == 'LMCI') | (self.label['Group'] == 'AD')]
+    #         self.label_dict = {'LMCI': 0, 'AD': 1}
+    #     if self.task == 'EMCILMCI':
+    #         self.labels = self.label[(self.label['Group'] == 'EMCI') | (self.label['Group'] == 'LMCI')]
+    #         self.label_dict = {'EMCI': 0, 'LMCI': 1}
+    #     if self.task == 'SMCIPMCI':
+    #         self.labels = self.label[(self.label['Group'] == 'SMCI') | (self.label['Group'] == 'PMCI')]
+    #         self.label_dict = {'SMCI': 0, 'PMCI': 1}
 
     def _process_labels(self):
-        """根据指定的任务从标签 CSV 文件中提取数据标签"""
-        if self.task == 'ADCN':
-            self.labels = self.label[(self.label['Group'] == 'AD') | (self.label['Group'] == 'CN')]
-            self.label_dict = {'CN': 0, 'AD': 1}
-        if self.task == 'CNEMCI':
-            self.labels = self.label[(self.label['Group'] == 'CN') | (self.label['Group'] == 'EMCI')]
-            self.label_dict = {'CN': 0, 'EMCI': 1}
-        if self.task == 'LMCIAD':
-            self.labels = self.label[(self.label['Group'] == 'LMCI') | (self.label['Group'] == 'AD')]
-            self.label_dict = {'LMCI': 0, 'AD': 1}
-        if self.task == 'EMCILMCI':
-            self.labels = self.label[(self.label['Group'] == 'EMCI') | (self.label['Group'] == 'LMCI')]
-            self.label_dict = {'EMCI': 0, 'LMCI': 1}
+        """根据指定任务生成 self.labels 和 self.label_dict"""
+        t = self.task.upper()
+
+        if t == 'ADCN':
+            groups = ['AD', 'CN']
+        elif t == 'CNEMCI':
+            groups = ['CN', 'EMCI']
+        elif t == 'LMCIAD':
+            groups = ['LMCI', 'AD']
+        elif t == 'EMCILMCI':
+            groups = ['EMCI', 'LMCI']
+        elif t == 'SMCIPMCI':
+            groups = ['SMCI', 'PMCI']
+        elif t == 'ADCNSMCIPMCI':
+            # ---- 新增四分类 ----
+            groups = ['CN', 'SMCI', 'PMCI', 'AD']
+        else:
+            raise ValueError(f'Unsupported task: {self.task}')
+
+        # 1) 选出需要的行
+        self.labels = self.label[self.label['Group'].isin(groups)].copy()
+
+        # 2) 建立标签映射，确保数值从 0 开始连续
+        self.label_dict = {g: i for i, g in enumerate(groups)}
 
     def _build_data_dict(self):
         subject_list = self.labels['Subject_ID'].tolist()
@@ -61,6 +96,15 @@ class ADNI(Dataset):
                 'Subject': subject
             } for subject, group in zip(subject_list, label_list)
         ]
+
+    def _print_class_counts(self):
+        """打印当前 data_dict 里每个 label 的样本数量。"""
+        inv = {v: k for k, v in self.label_dict.items()}
+        cnt = Counter(sample['label'] for sample in self.data_dict)
+        print(f"\n[ADNI Dataset: {self.task}] 样本分布：")
+        for lbl_value, num in cnt.items():
+            print(f"  {inv[lbl_value]} ({lbl_value}): {num}")
+        print()
 
     def __len__(self):
         return len(self.data_dict)
@@ -117,47 +161,92 @@ def ADNI_transform(augment=False):
 
 
 def main():
-    dataroot = rf'C:\Users\dongz\Desktop\adni_dataset'
-    label_filename = rf'C:\Users\dongz\Desktop\adni_dataset\ADNI.csv'
-    mri_dir = os.path.join(dataroot, 'MRI-GM')
-    task = 'ADCN'
+    # ------------- 基本路径与任务 -------------
+    dataroot        = r'C:\Users\dongz\Desktop\adni_dataset\MRI_GM_112_136_112'
+    label_filename  = r'C:\Users\dongz\Desktop\adni_dataset\ADNI_902.csv'
+    mri_dir         = dataroot              # 已在 ADNI 内部拼 path
+    task            = 'ADCN'        # 四分类
 
-    # 创建数据集对象
-    adni_dataset = ADNI(
+    # ------------- 1) 只创建一次完整数据集 -------------
+    full_dataset = ADNI(
         label_file=label_filename,
         mri_dir=mri_dir,
         task=task
-    )
+    )   # 这里会自动打印一次样本分布
 
-    # 数据集拆分
-    train_data, test_data = train_test_split(
-        adni_dataset.data_dict,
+    # ------------- 2) 分层划分索引 -------------
+    indices = list(range(len(full_dataset)))
+    labels  = [full_dataset.data_dict[i]['label'] for i in indices]
+
+    train_idx, test_idx = train_test_split(
+        indices,
         test_size=0.2,
-        random_state=42
+        random_state=42,
+        stratify=labels           # 保证四个类别比例一致
     )
 
-    # 创建子数据集
-    train_dataset = ADNI(label_filename, mri_dir, task)
-    train_dataset.data_dict = train_data
+    # ------------- 3) 构建子集 -------------
+    train_dataset = Subset(full_dataset, train_idx)
+    test_dataset  = Subset(full_dataset, test_idx)
 
-    test_dataset = ADNI(label_filename, mri_dir, task)
-    test_dataset.data_dict = test_data
-
-    # 验证数据加载
+    # ------------- 4) 数据验证 -------------
     sample_mri, sample_label = train_dataset[0]
     print(f"Sample MRI shape: {sample_mri.shape}, Label: {sample_label}")
 
-    # 打印数据集信息
-    train_dataset.print_dataset_info(end=3)
-    test_dataset.print_dataset_info(end=2)
+    # 如仍需查看部分样本，可在 Subset 上迭代索引：
+    def preview(ds, name, k=5):
+        print(f"\n{name} preview (前 {k} 条):")
+        for i in range(k):
+            subj = full_dataset.data_dict[ds.indices[i]]['Subject']
+            lbl  = full_dataset.data_dict[ds.indices[i]]['label']
+            print(f"  idx={ds.indices[i]:>4}  Subject={subj}  Label={lbl}")
+    preview(train_dataset, "Train", 20)
+    preview(test_dataset,  "Test",  5)
 
-    # 验证预处理流程
+    # ------------- 5) 预处理流程 -------------
     train_transform, _ = ADNI_transform(augment=False)
-    print("\nAugmented Transforms:")
+    print("\nTransforms pipeline:")
     for i, t in enumerate(train_transform.transforms):
-        print(f"{i + 1}. {t.__class__.__name__}")
+        print(f"  {i+1:>2}. {t.__class__.__name__}")
+
+
+def run_5fold_cv():
+    # ---------------- 路径与任务 ----------------
+    dataroot       = r'C:\Users\dongz\Desktop\adni_dataset\MRI_GM_112_136_112'
+    label_filename = r'C:\Users\dongz\Desktop\adni_dataset\ADNI_902.csv'
+    task           = 'ADCNSMCIPMCI'
+
+    # 1) 只实例化一次完整数据集
+    full_dataset = ADNI(label_filename, dataroot, task)
+
+    # 2) 取出标签，用于分层划分
+    y = [d["label"] for d in full_dataset.data_dict]
+
+    # 3) StratifiedKFold 确保四类比例在每折中大致一致
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+    for fold, (train_idx, val_idx) in enumerate(skf.split(torch.arange(len(full_dataset)), y), 1):
+        print(f"\n======== Fold {fold} ========")
+
+        # 4) 构建子集
+        train_set = Subset(full_dataset, train_idx)   # 训练
+        val_set   = Subset(full_dataset, val_idx)     # 验证
+
+        # 5) 如有需要，可为训练/验证分别指定 DataLoader
+        train_loader = DataLoader(train_set, batch_size=8, shuffle=True,  num_workers=4)
+        val_loader   = DataLoader(val_set,   batch_size=8, shuffle=False, num_workers=4)
+
+        # ---- 这里放你的训练 / 验证代码 ----
+        # for epoch in range(num_epochs):
+        #     train_one_epoch(train_loader, ...)
+        #     validate(val_loader, ...)
+
+        # 示例：打印每折样本数
+        print(f"Train: {len(train_set)} , Val: {len(val_set)}")
+        # 若想查看类别分布，可自行统计 train_set.dataset.data_dict[i]["label"]
 
 
 if __name__ == '__main__':
     main()
+    # run_5fold_cv()
     

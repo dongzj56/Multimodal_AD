@@ -2,18 +2,21 @@ import torch
 from models import resnet
 import torch.nn as nn
 
-def generate_model(model_type='resnet', model_depth=50,
-                   input_W=224, input_H=224, input_D=224, resnet_shortcut='B',
+# 模型函数接口
+def generate_model(model_type='resnet', model_depth=18,
+                   input_W=112, input_H=136, input_D=112, resnet_shortcut='B',
                    no_cuda=False, gpu_id=[0],
-                   pretrain_path = 'pretrain/resnet_50.pth',
-                   nb_class=1):
+                   pretrain_path = 'config/pretrain/resnet_18_23dataset.pth',
+                   nb_class=2):
+
+    # 参数合法性检查
     assert model_type in [
         'resnet'
     ]
-
     if model_type == 'resnet':
         assert model_depth in [10, 18, 34, 50, 101, 152, 200]
 
+    # 不同深度的模型
     if model_depth == 10:
         model = resnet.resnet10(
             sample_input_W=input_W,
@@ -78,9 +81,11 @@ def generate_model(model_type='resnet', model_depth=50,
             num_seg_classes=1)
         fc_input = 2048
 
+    # 将分割头替换为全局平均池化+线性层，实现分类+回归
     model.conv_seg = nn.Sequential(nn.AdaptiveAvgPool3d((1, 1, 1)), nn.Flatten(),
                                    nn.Linear(in_features=fc_input, out_features=nb_class, bias=True))
 
+    # 设置cuda
     if not no_cuda:
         if len(gpu_id) > 1:
             model = model.cuda()
@@ -95,6 +100,7 @@ def generate_model(model_type='resnet', model_depth=50,
     else:
         net_dict = model.state_dict()
 
+    # 加载预训练权重
     print('loading pretrained model {}'.format(pretrain_path))
     pretrain = torch.load(pretrain_path)
     pretrain_dict = {k: v for k, v in pretrain['state_dict'].items() if k in net_dict.keys()}

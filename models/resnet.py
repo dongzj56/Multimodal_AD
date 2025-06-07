@@ -10,7 +10,7 @@ __all__ = [
     'resnet152', 'resnet200'
 ]
 
-
+# 基础卷积
 def conv3x3x3(in_planes, out_planes, stride=1, dilation=1):
     # 3x3x3 convolution with padding
     return nn.Conv3d(
@@ -22,7 +22,7 @@ def conv3x3x3(in_planes, out_planes, stride=1, dilation=1):
         padding=dilation,
         bias=False)
 
-
+# 下采样
 def downsample_basic_block(x, planes, stride, no_cuda=False):
     out = F.avg_pool3d(x, kernel_size=1, stride=stride)
     zero_pads = torch.Tensor(
@@ -36,7 +36,7 @@ def downsample_basic_block(x, planes, stride, no_cuda=False):
 
     return out
 
-
+# 浅层网络的残差单元
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -68,7 +68,7 @@ class BasicBlock(nn.Module):
 
         return out
 
-
+# 深层网络的残差单元
 class Bottleneck(nn.Module):
     expansion = 4
 
@@ -108,7 +108,7 @@ class Bottleneck(nn.Module):
 
         return out
 
-
+# 主干网络
 class ResNet(nn.Module):
 
     def __init__(self,
@@ -214,7 +214,7 @@ class ResNet(nn.Module):
 
         return x
 
-
+'''所有深度神经网络参数'''
 def resnet10(**kwargs):
     """Constructs a ResNet-18 model.
     """
