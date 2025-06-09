@@ -4,8 +4,6 @@ from pathlib import Path
 # 改成 datasets 下的接口
 from nilearn.datasets import load_mni152_template
 
-
-
 # ---------------------------------------------
 # 读取 LUT（txt → {index: name}）
 # ---------------------------------------------
@@ -28,13 +26,18 @@ def load_aal3_lut(txt_path: str, keep_fullname=False):
 if __name__ == '__main__':
 
     # === 路径自行替换 ===
-    atlas_nii   = rf'C:\Users\dongzj\Desktop\adni_dataset\AAL3v1.nii'
-    lut_txt     = rf'C:\Users\dongzj\Desktop\adni_dataset\AAL3v1.nii.txt'
+    atlas_nii   = rf'C:\Users\dongz\Desktop\Multimodal_AD\utils\AAL3v2_for_SPM12\AAL3/AAL3v1.nii'
+    # atlas_nii   = rf'C:\Users\dongz\Desktop\配准aal\Reslice_AAL3v1_1mm.nii'
+    lut_txt     = rf'C:\Users\dongz\Desktop\Multimodal_AD\utils\AAL3v2_for_SPM12\AAL3/AAL3v1.nii.txt'
     # bg_template = plotting.load_mni152_template(resolution=2)  # 2 mm 背景 T1
     bg_template = load_mni152_template(resolution=2)   # 2 mm 背景 T1
 
     # ---------- 1. 载入 atlas & LUT ----------
     img   = nib.load(atlas_nii)
+    data = img.get_fdata().astype(int)
+    labels = np.unique(data)
+    print('标签总数:', labels.size)  # 应该是 171（0 + 170 个 ROI）
+    print('最大标签号:', labels.max())
     data  = torch.from_numpy(img.get_fdata()).long()
     lut   = load_aal3_lut(lut_txt, keep_fullname=False)
     print(f'Atlas shape: {data.shape}, 体素大小 ~{np.abs(np.diag(img.affine)[:3])} mm')
@@ -47,7 +50,7 @@ if __name__ == '__main__':
         threshold=0,    # 显示全部标签
         opacity=0.55,
         symmetric_cmap=False,
-        title='AAL3  (1.5 mm, 112×136×112)'
+        title='AAL3'
     )
     # Jupyter 环境直接 display(view)
     view.open_in_browser()            # 脚本环境自动打开默认浏览器

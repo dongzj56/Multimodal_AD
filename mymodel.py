@@ -26,8 +26,8 @@ def postload_transform(augment=False):
     return Compose(tfm)
 
 # ---------- 1. 基本参数 ----------
-dataroot       = r'C:\Users\dongzj\Desktop\adni_dataset\test'
-label_filename = r'C:\Users\dongzj\Desktop\adni_dataset\test\ADNI_902.csv'
+dataroot       = r'C:\Users\dongz\Desktop\adni_dataset\test'
+label_filename = r'C:\Users\dongz\Desktop\adni_dataset\test\ADNI_902.csv'
 task           = 'ADCN'          # 可改 'ADCN' 等
 device         = 'cuda' if torch.cuda.is_available() else 'cpu'
 
