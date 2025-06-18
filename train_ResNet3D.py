@@ -10,10 +10,10 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-from sklearn.metrics import (
-    roc_auc_score, accuracy_score, f1_score,
-    precision_score, recall_score, confusion_matrix
-)
+from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                             f1_score, roc_auc_score, matthews_corrcoef,
+                             confusion_matrix)
+
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from monai.data import Dataset
 from models import resnet
@@ -42,7 +42,7 @@ class Config:
 
 
 def generate_model(model_type='resnet', model_depth=50,
-                   input_W=224, input_H=224, input_D=224,
+                   input_W=112, input_H=136, input_D=112,
                    resnet_shortcut='B',
                    pretrain_path='config/pretrain/resnet_50_23dataset.pth',
                    nb_class=2,  # 修改为2分类输出
@@ -85,13 +85,26 @@ def generate_model(model_type='resnet', model_depth=50,
 
 
 def calculate_metrics(y_true, y_pred, y_score):
+    """
+    返回字典中键的排列顺序：ACC → PRE → SEN → SPE → F1 → AUC → MCC
+    """
+    # 混淆矩阵：[[TN, FP], [FN, TP]]
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+
+    # 7 个指标
+    acc  = accuracy_score(y_true, y_pred)                       # ACC
+    pre  = precision_score(y_true, y_pred, zero_division=0)     # PRE
+    sen  = recall_score(y_true, y_pred, zero_division=0)        # SEN (=TPR)
+    spe  = tn / (tn + fp + 1e-8)                                # SPE (=TNR)
+    f1   = f1_score(y_true, y_pred, zero_division=0)            # F1
+    auc  = roc_auc_score(y_true, y_score)                       # AUC
+    mcc  = matthews_corrcoef(y_true, y_pred)                    # MCC
+
     return {
-        'acc': accuracy_score(y_true, y_pred),
-        'auc': roc_auc_score(y_true, y_score),
-        'f1': f1_score(y_true, y_pred, zero_division=0),
-        'precision': precision_score(y_true, y_pred, zero_division=0),
-        'recall': recall_score(y_true, y_pred, zero_division=0),
-        'cm': confusion_matrix(y_true, y_pred)
+        'ACC': acc, 'PRE': pre, 'SEN': sen, 'SPE': spe,
+        'F1': f1, 'AUC': auc, 'MCC': mcc,
+        'cm': np.array([[tn, fp],
+                        [fn, tp]])    
     }
 
 
@@ -182,8 +195,8 @@ def train():
 
         # 早停机制
         best_metric = -np.inf  # 初始化为负无穷
-        patience = 5
-        no_improve = 0
+        # patience = 10
+        # no_improve = 0
 
         for epoch in range(1, cfg.num_epochs + 1):
             t0 = time.time()
@@ -193,12 +206,15 @@ def train():
 
             for batch in loader_tr:
                 x = batch['MRI'].to(device)
-                y = batch['label'].to(device).squeeze().long()  # 确保为LongTensor
+                # y = batch['label'].to(device).squeeze().long()  # 确保为LongTensor
+                y = batch['label'].to(device).long().view(-1)   # 或直接不 squeeze
                 out = model(x)
                 loss = criterion(out, y)
                 loss_sum += loss.item()
                 optimizer.zero_grad()
+                # 在optimizer.step()之前添加梯度裁剪
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
 
                 probs = torch.softmax(out, 1)[:, 1].detach().cpu().numpy()
@@ -236,48 +252,62 @@ def train():
             scheduler.step()
 
             # 记录日志
-            writer.add_scalar(f'fold{fold}/train/acc', tr_metrics['acc'], epoch)
-            writer.add_scalar(f'fold{fold}/val/acc', vl_metrics['acc'], epoch)
+            writer.add_scalar(f'fold{fold}/train/ACC', tr_metrics['ACC'], epoch)
+            writer.add_scalar(f'fold{fold}/val/ACC',   vl_metrics['ACC'], epoch)
+            writer.add_scalar(f'fold{fold}/train/AUC', tr_metrics['AUC'], epoch)
+            writer.add_scalar(f'fold{fold}/val/AUC',   vl_metrics['AUC'], epoch)
             writer.add_scalar(f'fold{fold}/train/loss', tr_loss, epoch)
-            writer.add_scalar(f'fold{fold}/val/loss', vl_loss, epoch)
-            writer.add_scalar(f'fold{fold}/lr', lr_now, epoch)
+            writer.add_scalar(f'fold{fold}/val/loss',   vl_loss, epoch)
+            writer.add_scalar(f'fold{fold}/lr',         lr_now,  epoch)
 
             with open(csv_path, 'a', newline='') as f:
                 csv.writer(f).writerow([
                     fold, epoch,
-                    f"{tr_metrics['acc']:.6f}", f"{tr_metrics['auc']:.6f}", f"{tr_loss:.6f}",
-                    f"{vl_metrics['acc']:.6f}", f"{vl_metrics['auc']:.6f}", f"{vl_loss:.6f}",
+                    f"{tr_metrics['ACC']:.6f}", f"{tr_metrics['PRE']:.6f}",
+                    f"{tr_metrics['SEN']:.6f}", f"{tr_metrics['SPE']:.6f}",
+                    f"{tr_metrics['F1']:.6f}",  f"{tr_metrics['AUC']:.6f}",
+                    f"{tr_metrics['MCC']:.6f}", f"{tr_loss:.6f}",
+                    f"{vl_metrics['ACC']:.6f}", f"{vl_metrics['PRE']:.6f}",
+                    f"{vl_metrics['SEN']:.6f}", f"{vl_metrics['SPE']:.6f}",
+                    f"{vl_metrics['F1']:.6f}",  f"{vl_metrics['AUC']:.6f}",
+                    f"{vl_metrics['MCC']:.6f}", f"{vl_loss:.6f}",
                     f"{lr_now:.6f}"
                 ])
 
             print(f"Fold{fold} Ep{epoch:03d} | "
-                  f"tr_acc={tr_metrics['acc']:.6f}(AUC={tr_metrics['auc']:.6f}) "
-                  f"vl_acc={vl_metrics['acc']:.6f}(AUC={vl_metrics['auc']:.6f}) "
-                  f"lr={lr_now:.7f} time={time.time() - t0:.3f}s")
+                f"TR  ACC={tr_metrics['ACC']:.4f} PRE={tr_metrics['PRE']:.4f} "
+                f"SEN={tr_metrics['SEN']:.4f} SPE={tr_metrics['SPE']:.4f} "
+                f"F1={tr_metrics['F1']:.4f} AUC={tr_metrics['AUC']:.4f} "
+                f"MCC={tr_metrics['MCC']:.4f} | "
+                f"VL  ACC={vl_metrics['ACC']:.4f} PRE={vl_metrics['PRE']:.4f} "
+                f"SEN={vl_metrics['SEN']:.4f} SPE={vl_metrics['SPE']:.4f} "
+                f"F1={vl_metrics['F1']:.4f} AUC={vl_metrics['AUC']:.4f} "
+                f"MCC={vl_metrics['MCC']:.4f} | "
+                f"lr={lr_now:.6f} time={time.time()-t0:.1f}s")
 
             # 早停判断
-            current_metric = 0.5 * vl_metrics['auc'] + 0.5 * vl_metrics['acc']
+            current_metric = 0.3 * vl_metrics['AUC'] + 0.7 * vl_metrics['ACC']
             if current_metric > best_metric:
                 best_metric = current_metric
-                no_improve = 0
+                # no_improve = 0
                 torch.save({
                     'epoch': epoch,
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'scheduler_state_dict': scheduler.state_dict(),
                     'metrics': {
-                        'train_auc': tr_metrics['auc'],
-                        'val_auc': vl_metrics['auc'],
+                        'train_auc': tr_metrics['AUC'],
+                        'val_auc': vl_metrics['AUC'],
                         'val_loss': vl_loss,
                         'current_metric': current_metric
                     },
                     'config': vars(cfg)  # 保存当前配置
                 }, os.path.join(cfg.checkpoint_dir, f"best_fold{fold}.pth"))
-            else:
-                no_improve += 1
-                if no_improve >= patience:
-                    print(f"Early stopping at epoch {epoch}")
-                    break
+            # else:
+            #     no_improve += 1
+            #     if no_improve >= patience:
+            #         print(f"Early stopping at epoch {epoch}")
+            #         break
 
         # 保存最终epoch模型
         torch.save({
@@ -286,8 +316,8 @@ def train():
             'optimizer_state_dict': optimizer.state_dict(),
             'scheduler_state_dict': scheduler.state_dict(),
             'final_metrics': {
-                'train_auc': tr_metrics['auc'],
-                'val_auc': vl_metrics['auc'],
+                'train_auc': tr_metrics['AUC'],
+                'val_auc': vl_metrics['AUC'],
                 'val_loss': vl_loss
             }
         }, os.path.join(cfg.checkpoint_dir, f"model_fold{fold}_final.pth"))
@@ -366,10 +396,14 @@ def test_models(checkpoint_dir, test_data):
 
         # 打印结果
         print(f"\n=== Fold {fold} Test Metrics ===")
-        print(f"AUC: {metrics['auc']:.4f}")
-        print(f"Accuracy: {metrics['acc']:.4f}")
-        print(f"F1 Score: {metrics['f1']:.4f}")
+        for k in ['ACC','PRE','SEN','SPE','F1','AUC','MCC']:
+            print(f"{k}: {metrics[k]:.4f}")
         print("Confusion Matrix:\n", metrics['cm'])
+
+        print("\n=== Final Test Results ===")
+        for k in ['ACC','PRE','SEN','SPE','F1','AUC','MCC']:
+            vals = [m[k] for m in all_metrics]
+            print(f"{k}: {np.mean(vals):.4f} ± {np.std(vals):.4f}")
 
     # 绘制合并后的平滑ROC曲线
     fpr, tpr, _ = roc_curve(all_fold_labels, all_fold_probs)

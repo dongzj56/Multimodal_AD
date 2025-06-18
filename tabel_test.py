@@ -83,8 +83,8 @@ def tabel_encoder(
 
 def tabel_encoder_multi(
     csv_path: str,
-    start_col: int=18,
-    label_col: str="Group",
+    start_col: int=14,
+    label_col: str="GROUP",
     classes: list=["CN", "SMCI", "PMCI", "AD"],
     n_fold: int = 5,
     test_size: float = 0.3,

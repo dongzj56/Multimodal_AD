@@ -6,8 +6,10 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import (
     roc_auc_score, accuracy_score, f1_score,
     precision_score, recall_score, confusion_matrix,
-    roc_curve, auc  # Add these imports
+    matthews_corrcoef,          # ← 补这行
+    roc_curve, auc
 )
+
 import json
 import matplotlib.pyplot as plt
 from models import resnet
@@ -74,14 +76,22 @@ def generate_model(model_type='resnet', model_depth=50,
     return net
 
 def calculate_metrics(y_true, y_pred, y_score):
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+
+    acc  = accuracy_score(y_true, y_pred)                       # ACC
+    pre  = precision_score(y_true, y_pred, zero_division=0)     # PRE
+    sen  = recall_score(y_true, y_pred, zero_division=0)        # SEN
+    spe  = tn / (tn + fp + 1e-8)                                # SPE
+    f1   = f1_score(y_true, y_pred, zero_division=0)            # F1
+    auc  = roc_auc_score(y_true, y_score)                       # AUC
+    mcc  = matthews_corrcoef(y_true, y_pred)                    # MCC
+
     return {
-        'acc': accuracy_score(y_true, y_pred),
-        'auc': roc_auc_score(y_true, y_score),
-        'f1': f1_score(y_true, y_pred, zero_division=0),
-        'precision': precision_score(y_true, y_pred, zero_division=0),
-        'recall': recall_score(y_true, y_pred, zero_division=0),
-        'cm': confusion_matrix(y_true, y_pred)
+        'ACC': acc, 'PRE': pre, 'SEN': sen, 'SPE': spe,
+        'F1': f1, 'AUC': auc, 'MCC': mcc,
+        'cm': np.array([[tn, fp], [fn, tp]])
     }
+
 
 def load_test_data(cfg):
     """加载测试数据（与训练时完全相同的分割方式）"""
@@ -158,10 +168,10 @@ def test_models(checkpoint_dir, test_data):
 
         # 打印结果
         print(f"\n=== Fold {fold} Test Metrics ===")
-        print(f"AUC: {metrics['auc']:.4f}")
-        print(f"Accuracy: {metrics['acc']:.4f}")
-        print(f"F1 Score: {metrics['f1']:.4f}")
+        for k in ['ACC', 'PRE', 'SEN', 'SPE', 'F1', 'AUC', 'MCC']:
+            print(f"{k}: {metrics[k]:.4f}")
         print("Confusion Matrix:\n", metrics['cm'])
+
 
     # 绘制合并后的平滑ROC曲线
     fpr, tpr, _ = roc_curve(all_fold_labels, all_fold_probs)
@@ -172,14 +182,8 @@ def test_models(checkpoint_dir, test_data):
             label=f'Mean ROC (AUC={roc_auc:.2f})')
 
     # 计算平均指标
-    avg_metrics = {
-        k: np.mean([m[k] for m in all_metrics]) 
-        for k in all_metrics[0].keys() if k != 'cm'
-    }
-    std_metrics = {
-        k: np.std([m[k] for m in all_metrics])
-        for k in all_metrics[0].keys() if k != 'cm'
-    }
+    avg_metrics = {k: np.mean([m[k] for m in all_metrics]) for k in ['ACC','PRE','SEN','SPE','F1','AUC','MCC']}
+    std_metrics = {k: np.std([m[k] for m in all_metrics])  for k in ['ACC','PRE','SEN','SPE','F1','AUC','MCC']}
 
     # 完善图表
     plt.plot([0, 1], [0, 1], 'k--', lw=2)
@@ -198,9 +202,10 @@ def test_models(checkpoint_dir, test_data):
 
     # 打印最终结果
     print("\n=== Final Test Results ===")
-    for metric in ['auc', 'acc', 'f1', 'precision', 'recall']:
-        print(f"{metric.upper()}: {avg_metrics[metric]:.4f} ± {std_metrics[metric]:.4f}")
-    
+    for k in ['ACC', 'PRE', 'SEN', 'SPE', 'F1', 'AUC', 'MCC']:
+        vals = [m[k] for m in all_metrics]
+        print(f"{k}: {np.mean(vals):.4f} ± {np.std(vals):.4f}")
+
     return avg_metrics, std_metrics
 
 if __name__ == '__main__':
@@ -211,7 +216,7 @@ if __name__ == '__main__':
     test_data = load_test_data(cfg)
     
     # 指定checkpoint目录
-    checkpoint_dir = "checkpoints"
+    checkpoint_dir = "/data/coding/Multimodel_AD/checkpoints-resnet"
     
     # 运行测试
     test_models(checkpoint_dir, test_data)
