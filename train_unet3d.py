@@ -1,9 +1,3 @@
-"""
-train_unet3d_cls.py
----------------------------------------
-用 UNet3D 主干做 MRI 二分类 (AD vs CN)
-"""
-
 import os, json, time, csv, numpy as np
 from multiprocessing import freeze_support
 
@@ -19,8 +13,9 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score,
                              confusion_matrix, roc_curve, auc)
 
 from monai.data import Dataset
-from models.unet3d import UNet3D
+# from models.unet3d import UNet3D
 from datasets.ADNI import ADNI, ADNI_transform
+
 
 # -------------------- 配置 --------------------
 def load_cfg(path="/data/coding/Multimodal_AD/config/config.json"):
@@ -33,8 +28,8 @@ class Cfg:
         self.batch_size = getattr(self, 'batch_size', 2)
         self.lr         = getattr(self, 'lr', 1e-5)
         self.num_epochs = getattr(self, 'num_epochs', 100)
-        self.fp16       = getattr(self, 'fp16', True)
         self.device     = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.fp16       = getattr(self, 'fp16', True)
 
 # ----------------- 指标函数 -------------------
 def calculate_metrics(y_true, y_pred, y_score):
@@ -51,157 +46,173 @@ def calculate_metrics(y_true, y_pred, y_score):
         'cm' : np.array([[tn, fp], [fn, tp]])
     }
 
-# --------------- 分类模型封装 ------------------
-class UNet3DClassifier(nn.Module):
-    def __init__(self, in_ch=1, feat_ch=64, num_classes=2):
+cfg = Cfg(load_cfg())
+writer = SummaryWriter(cfg.checkpoint_dir)
+
+# 数据划分
+full_ds = ADNI(cfg.label_file, cfg.mri_dir, cfg.task, cfg.augment).data_dict
+train_val, test_ds = train_test_split(
+    full_ds, test_size=0.2, random_state=42,
+    stratify=[d['label'] for d in full_ds])
+
+# 再划分验证集
+train_ds, val_ds = train_test_split(
+    train_val, test_size=0.2, random_state=42,
+    stratify=[d['label'] for d in train_val])
+
+
+tr_tf, vl_tf = ADNI_transform(augment=cfg.augment)
+tr_loader = DataLoader(Dataset(train_ds, tr_tf),
+                       batch_size=cfg.batch_size, shuffle=True,
+                       num_workers=4, pin_memory=True)
+vl_loader = DataLoader(Dataset(val_ds, vl_tf),
+                       batch_size=cfg.batch_size, shuffle=False,
+                       num_workers=2, pin_memory=True)
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+# 基础卷积块：Conv3D + BN + ReLU（可选）
+class ConvBlock(nn.Module):
+    def __init__(self, in_ch, out_ch):
         super().__init__()
-        self.backbone = UNet3D(in_channels=in_ch, num_classes=feat_ch)
-        self.pool     = nn.AdaptiveAvgPool3d((1, 1, 1))
-        self.fc       = nn.Linear(feat_ch, num_classes)
+        self.block = nn.Sequential(
+            nn.Conv3d(in_ch, out_ch, kernel_size=3, padding=1),
+            nn.BatchNorm3d(out_ch),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(out_ch, out_ch, kernel_size=3, padding=1),
+            nn.BatchNorm3d(out_ch),
+            nn.ReLU(inplace=True)
+        )
 
     def forward(self, x):
-        feat = self.backbone(x)
-        feat = self.pool(feat).flatten(1)
-        return self.fc(feat)
+        return self.block(x)
 
-# -------------------- 训练 --------------------
-def train():
-    cfg = Cfg(load_cfg())
-    writer = SummaryWriter(cfg.checkpoint_dir)
+# 上采样 + 融合
+class UpBlock(nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super().__init__()
+        self.up = nn.ConvTranspose3d(in_ch, out_ch, kernel_size=2, stride=2)
+        self.conv = ConvBlock(in_ch, out_ch)
 
-    # 数据划分
-    full_ds = ADNI(cfg.label_file, cfg.mri_dir, cfg.task, cfg.augment).data_dict
-    train_val, test_ds = train_test_split(
-        full_ds, test_size=0.2, random_state=42,
-        stratify=[d['label'] for d in full_ds])
+    def forward(self, x1, x2):
+        x1 = self.up(x1)
+        # Pad if necessary to match size due to rounding
+        diffZ = x2.size(2) - x1.size(2)
+        diffY = x2.size(3) - x1.size(3)
+        diffX = x2.size(4) - x1.size(4)
+        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
+                        diffY // 2, diffY - diffY // 2,
+                        diffZ // 2, diffZ - diffZ // 2])
+        x = torch.cat([x2, x1], dim=1)
+        return self.conv(x)
 
-    labels = [d['label'] for d in train_val]
-    skf = StratifiedKFold(n_splits=cfg.n_splits, shuffle=True, random_state=42)
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-    for fold, (tr_idx, vl_idx) in enumerate(skf.split(train_val, labels), 1):
-        print(f"\n=== Fold {fold}/{cfg.n_splits} ===")
-        tr_data = [train_val[i] for i in tr_idx]
-        vl_data = [train_val[i] for i in vl_idx]
+class UNet3DClassifier(nn.Module):
+    def __init__(self, in_ch=1, num_classes=2, base_ch=32):
+        super().__init__()
+        self.enc1 = ConvBlock(in_ch, base_ch)
+        self.pool1 = nn.MaxPool3d(2)
 
-        tr_tf, vl_tf = ADNI_transform(augment=cfg.augment)
-        tr_loader = DataLoader(Dataset(tr_data, tr_tf),
-                               batch_size=cfg.batch_size, shuffle=True,
-                               num_workers=4, pin_memory=True)
-        vl_loader = DataLoader(Dataset(vl_data, vl_tf),
-                               batch_size=cfg.batch_size, shuffle=False,
-                               num_workers=2, pin_memory=True)
+        self.enc2 = ConvBlock(base_ch, base_ch * 2)
+        self.pool2 = nn.MaxPool3d(2)
 
-        # 模型与优化器
-        model = UNet3DClassifier(in_ch=cfg.in_channels, num_classes=2).to(cfg.device)
-        criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=1e-4)
-        scheduler = CosineAnnealingLR(optimizer, T_max=cfg.num_epochs)
-        scaler = GradScaler(enabled=cfg.fp16)
+        self.enc3 = ConvBlock(base_ch * 2, base_ch * 4)
+        self.pool3 = nn.MaxPool3d(2)
 
-        best_auc = -np.inf
-        for epoch in range(1, cfg.num_epochs + 1):
-            t0 = time.time()
-            # -------- Train --------
-            model.train(); yt,yp,ys = [],[],[]
-            for batch in tr_loader:
-                x = batch['MRI'].to(cfg.device, non_blocking=True)
-                y = batch['label'].to(cfg.device).long().view(-1)
-                optimizer.zero_grad()
-                with autocast(device_type='cuda', dtype=torch.float16, enabled=cfg.fp16):
-                    out = model(x)
-                    loss = criterion(out, y)
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
+        self.enc4 = ConvBlock(base_ch * 4, base_ch * 8)
+        self.pool4 = nn.MaxPool3d(2)
 
-                prob = torch.softmax(out,1)[:,1].detach().cpu().numpy()
-                ys.extend(prob); yp.extend(out.argmax(1).cpu().numpy()); yt.extend(y.cpu().numpy())
-            tr_met = calculate_metrics(yt, yp, ys)
+        self.bottleneck = ConvBlock(base_ch * 8, base_ch * 16)
 
-            # -------- Val --------
-            model.eval(); yt,yp,ys = [],[],[]
-            with torch.no_grad():
-                for batch in vl_loader:
-                    x = batch['MRI'].to(cfg.device, non_blocking=True)
-                    y = batch['label'].to(cfg.device).long().view(-1)
-                    with autocast(device_type='cuda', dtype=torch.float16, enabled=cfg.fp16):
-                        out = model(x)
-                        loss = criterion(out, y)
-                    prob = torch.softmax(out,1)[:,1].cpu().numpy()
-                    ys.extend(prob); yp.extend(out.argmax(1).cpu().numpy()); yt.extend(y.cpu().numpy())
-            vl_met = calculate_metrics(yt, yp, ys)
+        self.up4 = UpBlock(base_ch * 16, base_ch * 8)
+        self.up3 = UpBlock(base_ch * 8, base_ch * 4)
+        self.up2 = UpBlock(base_ch * 4, base_ch * 2)
+        self.up1 = UpBlock(base_ch * 2, base_ch)
 
-            lr_now = scheduler.get_last_lr()[0]
-            scheduler.step()
+        self.avgpool = nn.AdaptiveAvgPool3d(1)  # 输出 [B, C, 1, 1, 1]
+        self.classifier = nn.Linear(base_ch, num_classes)  # 最后一层通道为 base_ch
 
-            # 日志 & 打印
-            writer.add_scalar(f'fold{fold}/val/AUC', vl_met['AUC'], epoch)
-            print(f"Fold{fold} Ep{epoch:03d} | "
-                  f"TR  ACC={tr_met['ACC']:.4f} PRE={tr_met['PRE']:.4f} "
-                  f"SEN={tr_met['SEN']:.4f} SPE={tr_met['SPE']:.4f} "
-                  f"F1={tr_met['F1']:.4f} AUC={tr_met['AUC']:.4f} "
-                  f"MCC={tr_met['MCC']:.4f} | "
-                  f"VL  ACC={vl_met['ACC']:.4f} PRE={vl_met['PRE']:.4f} "
-                  f"SEN={vl_met['SEN']:.4f} SPE={vl_met['SPE']:.4f} "
-                  f"F1={vl_met['F1']:.4f} AUC={vl_met['AUC']:.4f} "
-                  f"MCC={vl_met['MCC']:.4f} | "
-                  f"lr={lr_now:.6f} time={time.time()-t0:.1f}s")
+    def forward(self, x):
+        e1 = self.enc1(x)
+        e2 = self.enc2(self.pool1(e1))
+        e3 = self.enc3(self.pool2(e2))
+        e4 = self.enc4(self.pool3(e3))
+        bn = self.bottleneck(self.pool4(e4))
 
-            # 保存最优
-            if vl_met['AUC'] > best_auc:
-                best_auc = vl_met['AUC']
-                torch.save(model.state_dict(),
-                           os.path.join(cfg.checkpoint_dir, f"best_fold{fold}.pth"))
+        d4 = self.up4(bn, e4)
+        d3 = self.up3(d4, e3)
+        d2 = self.up2(d3, e2)
+        d1 = self.up1(d2, e1)  # shape: [B, base_ch, D, H, W]
 
-        # fold 结束
-    writer.close()
-    print("\n=== CV complete ===")
+        x = self.avgpool(d1)       # [B, base_ch, 1, 1, 1]
+        x = torch.flatten(x, 1)    # [B, base_ch]
+        out = self.classifier(x)   # [B, num_classes]
+        return out
 
-    # -------- 测试阶段 --------
-    test_models(cfg, test_ds)
-    print("\nTraining finished!")
 
-# ------------------ 测试函数 -------------------
-def test_models(cfg, test_data):
-    device = cfg.device
-    test_tf = ADNI_transform(augment=False)[1]
-    test_loader = DataLoader(Dataset(test_data, test_tf),
-                             batch_size=cfg.batch_size, shuffle=False)
+model = UNet3DClassifier(in_ch=cfg.in_channels, num_classes=2).to(cfg.device)
+optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=1e-4)
+criterion = nn.CrossEntropyLoss()
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.num_epochs)
+scaler = GradScaler(enabled=cfg.fp16)
 
-    all_metrics, all_probs, all_labels = [], [], []
+best_auc = -np.inf
+for epoch in range(1, cfg.num_epochs + 1):
+    t0 = time.time()
 
-    for fold in range(1, cfg.n_splits + 1):
-        model = UNet3DClassifier(in_ch=cfg.in_channels, num_classes=2).to(device)
-        ckpt = torch.load(os.path.join(cfg.checkpoint_dir, f"best_fold{fold}.pth"),
-                          map_location=device)
-        model.load_state_dict(ckpt)
-        model.eval()
+    # -------- Train --------
+    model.train(); yt, yp, ys = [], [], []
+    for batch in tr_loader:
+        x = batch['MRI'].to(cfg.device)
+        y = batch['label'].to(cfg.device).long().view(-1)
 
-        probs, labels = [], []
-        with torch.no_grad():
-            for batch in test_loader:
-                x = batch['MRI'].to(device)
-                y = batch['label'].cpu().numpy()
-                labels.extend(y)
+        optimizer.zero_grad()
+        with autocast(device_type='cuda', enabled=cfg.fp16):
+            out = model(x)
+            loss = criterion(out, y)
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+
+        prob = torch.softmax(out, dim=1)[:, 1].detach().cpu().numpy()
+        pred = out.argmax(1).detach().cpu().numpy()
+        yt.extend(y.cpu().numpy())
+        yp.extend(pred)
+        ys.extend(prob)
+
+    tr_met = calculate_metrics(yt, yp, ys)
+
+    # -------- Validation --------
+    model.eval(); yt, yp, ys = [], [], []
+    with torch.no_grad():
+        for batch in vl_loader:
+            x = batch['MRI'].to(cfg.device)
+            y = batch['label'].to(cfg.device).long().view(-1)
+
+            with autocast(device_type='cuda', enabled=cfg.fp16):
                 out = model(x)
-                probs.extend(torch.softmax(out,1)[:,1].cpu().numpy())
+                loss = criterion(out, y)
 
-        all_probs.extend(probs); all_labels.extend(labels)
-        preds = (np.array(probs) > 0.5).astype(int)
-        metrics = calculate_metrics(labels, preds, probs)
-        all_metrics.append(metrics)
+            prob = torch.softmax(out, dim=1)[:, 1].cpu().numpy()
+            pred = out.argmax(1).cpu().numpy()
+            yt.extend(y.cpu().numpy())
+            yp.extend(pred)
+            ys.extend(prob)
 
-        print(f"\n=== Fold {fold} Test Metrics ===")
-        for k in ['ACC','PRE','SEN','SPE','F1','AUC','MCC']:
-            print(f"{k}: {metrics[k]:.4f}")
-        print("Confusion Matrix:\n", metrics['cm'])
+    vl_met = calculate_metrics(yt, yp, ys)
+    scheduler.step()
 
-    print("\n=== Final Test Results ===")
-    for k in ['ACC','PRE','SEN','SPE','F1','AUC','MCC']:
-        vals = [m[k] for m in all_metrics]
-        print(f"{k}: {np.mean(vals):.4f} ± {np.std(vals):.4f}")
+    print(f"Epoch {epoch:03d} | "
+          f"Train ACC={tr_met['ACC']:.4f} F1={tr_met['F1']:.4f} AUC={tr_met['AUC']:.4f} | "
+          f"Val ACC={vl_met['ACC']:.4f} F1={vl_met['F1']:.4f} AUC={vl_met['AUC']:.4f} | "
+          f"time={time.time()-t0:.1f}s")
 
-# --------------------- main -------------------
-if __name__ == "__main__":
-    freeze_support()
-    train()
+    if vl_met['AUC'] > best_auc:
+        best_auc = vl_met['AUC']
+        torch.save(model.state_dict(), os.path.join(cfg.checkpoint_dir, "best_model.pth"))
+        print("✅ Saved best model.")

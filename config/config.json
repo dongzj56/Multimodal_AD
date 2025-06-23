@@ -9,7 +9,7 @@
   "num_epochs": 100,
   "batch_size": 8,
   "lr": 1e-6,
-  "checkpoint_dir": "/data/coding/Multimodel_AD/checkpoints-resnet",
+  "checkpoint_dir": "/data/coding/Multimodal_AD/checkpoints",
   "log_file": "training_log1.csv",
 
   "model_type":"resnet",
@@ -21,6 +21,8 @@
   "pretrain_path": "config/pretrain/resnet_18_23dataset.pth",
   "nb_class": 2,
   "n_splits":5,
-  "dropout_rate":0.5
+  "dropout_rate":0.5,
+  "in_channels": 1,
+  "seg_task":false 
 
 }

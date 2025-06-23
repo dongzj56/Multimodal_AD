@@ -1,7 +1,7 @@
 {
-  "dataroot": "/data/coding/test_dataset",
-  "label_file": "/data/coding/test_dataset/ADNI_40.csv",
-  "mri_dir": "/data/coding/test_dataset/MRI",
+  "dataroot": "/data/coding/adni_dataset",
+  "label_file": "/data/coding/adni_dataset/test_dataset/ADNI_40.csv",
+  "mri_dir": "/data/coding/adni_dataset/test_dataset/MRI",
   "task": "ADCN",
   "augment": false,
   "split_ratio": 0.2,
@@ -9,7 +9,7 @@
   "num_epochs": 50,
   "batch_size": 2,
   "lr": 5e-6,
-  "checkpoint_dir": "/data/coding/Multimodel_AD/checkpoints",
+  "checkpoint_dir": "/data/coding/Multimodal_AD/checkpoints",
   "log_file": "training_log1.csv",
 
   "model_type":"resnet",
