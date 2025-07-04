@@ -21,14 +21,15 @@ print(f"▶ Using device: {DEVICE}")
 
 def tabel_encoder(
     csv_path: str,
-    start_col: int = 18,
-    class0: str = "SMCI",
-    class1: str = "PMCI",
+    start_col: int = 14,
+    class0: str = "AD",
+    class1: str = "CN",
     n_fold: int = 5,
     test_size: float = 0.3,
     random_state: int = 42,
     train_out: str = "train_embeddings.csv",
     test_out: str = "test_embeddings.csv"
+
 ):
     """
     读取 ADNI 表格数据，生成 TabPFN 嵌入并保存到 CSV 文件。
@@ -85,7 +86,7 @@ def tabel_encoder_multi(
     csv_path: str,
     start_col: int=14,
     label_col: str="GROUP",
-    classes: list=["CN", "SMCI", "PMCI", "AD"],
+    classes: list=["CN", "AD"],
     n_fold: int = 5,
     test_size: float = 0.3,
     random_state: int = 42,
@@ -145,6 +146,8 @@ def tabel_encoder_multi(
     # 6. 生成 train 和 test 的 embedding（都会返回元组，第 0 项是我们要的 embedding 数组）
     train_emb = embed.get_embeddings(X_tr, y_tr_num, X_te, data_source="train")[0]
     test_emb  = embed.get_embeddings(X_tr, y_tr_num, X_te, data_source="test")[0]
+    print(f"train_emb shape: {train_emb.shape}")  # 输出如 (样本数, 嵌入维度)
+    print(f"test_emb shape: {test_emb.shape}")
 
     # 7. 保存到 DataFrame，并在第 0 列插入原始标签字符串
     train_df = pd.DataFrame(train_emb)
@@ -185,7 +188,7 @@ def quick_eval_from_saved(train_csv="train_embeddings.csv", test_csv="test_embed
 if __name__ == "__main__":
     print("embedings.......")
     # tabel_encoder(csv_path='ADNI_Tabel.csv')
-    tabel_encoder_multi(csv_path='ADNI_Tabel.csv')
+    tabel_encoder_multi(csv_path='ADNI_Tabel.csv',label_col='GROUP',classes=["SCMI","PMCI","AD","CN"], n_fold=5,test_size= 0.2)
     print("test model......")
     quick_eval_from_saved()
 
