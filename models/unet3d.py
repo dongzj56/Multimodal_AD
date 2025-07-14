@@ -8,9 +8,7 @@ from torch import nn
 from torchsummary import summary
 import torch
 import time
-import torch.nn.functional as F
 
-# 编码端
 class Conv3DBlock(nn.Module):
     """
     The basic block for double 3x3x3 convolutions in the analysis path
@@ -46,8 +44,6 @@ class Conv3DBlock(nn.Module):
         return out, res
 
 
-
-# 解码端
 class UpConv3DBlock(nn.Module):
     """
     The basic block for upsampling followed by double 3x3x3 convolutions in the synthesis path
@@ -82,87 +78,275 @@ class UpConv3DBlock(nn.Module):
         out = self.relu(self.bn(self.conv2(out)))
         if self.last_layer: out = self.conv3(out)
         return out
-        
+
 
 class UNet3D(nn.Module):
     """
-    The basic block for upsampling followed by double 3x3x3 convolutions in the synthesis path
+    The 3D UNet model
     -- __init__()
     :param in_channels -> number of input channels
-    :param out_channels -> number of residual connections' channels to be concatenated
-    :param last_layer -> specifies the last output layer
-    :param num_classes -> specifies the number of output channels for dispirate classes
+    :param num_classes -> specifies the number of output channels or masks for different classes
+    :param level_channels -> the number of channels at each level (count top-down)
+    :param bottleneck_channel -> the number of bottleneck channels 
+    :param device -> the device on which to run the model
     -- forward()
     :param input -> input Tensor
-    :param residual -> residual connection to be concatenated with input
     :return -> Tensor
     """
-    # ---------------- 构造函数保持不变 ----------------
-    def __init__(self, in_channels, num_classes,
-                 level_channels=[64,128,256], bottleneck_channel=512):
-        super().__init__()
-        c1,c2,c3 = level_channels
-        self.a_block1 = Conv3DBlock(in_channels, c1)
-        self.a_block2 = Conv3DBlock(c1, c2)
-        self.a_block3 = Conv3DBlock(c2, c3)
-        self.bottleNeck = Conv3DBlock(c3, bottleneck_channel, bottleneck=True)
+    
+    def __init__(self, in_channels, num_classes, level_channels=[64, 128, 256], bottleneck_channel=512) -> None:
+        super(UNet3D, self).__init__()
+        level_1_chnls, level_2_chnls, level_3_chnls = level_channels[0], level_channels[1], level_channels[2]
+        self.a_block1 = Conv3DBlock(in_channels=in_channels, out_channels=level_1_chnls)
+        self.a_block2 = Conv3DBlock(in_channels=level_1_chnls, out_channels=level_2_chnls)
+        self.a_block3 = Conv3DBlock(in_channels=level_2_chnls, out_channels=level_3_chnls)
+        self.bottleNeck = Conv3DBlock(in_channels=level_3_chnls, out_channels=bottleneck_channel, bottleneck= True)
+        self.s_block3 = UpConv3DBlock(in_channels=bottleneck_channel, res_channels=level_3_chnls)
+        self.s_block2 = UpConv3DBlock(in_channels=level_3_chnls, res_channels=level_2_chnls)
+        self.s_block1 = UpConv3DBlock(in_channels=level_2_chnls, res_channels=level_1_chnls, num_classes=num_classes, last_layer=True)
 
-        self.s_block3 = UpConv3DBlock(bottleneck_channel, res_channels=c3)
-        self.s_block2 = UpConv3DBlock(c3, res_channels=c2)
-        self.s_block1 = UpConv3DBlock(c2, res_channels=c1,
-                                      num_classes=num_classes, last_layer=True)
+    
+    def forward(self, input):
+        #Analysis path forward feed
+        out, residual_level1 = self.a_block1(input)
+        out, residual_level2 = self.a_block2(out)
+        out, residual_level3 = self.a_block3(out)
+        out, _ = self.bottleNeck(out)
 
-    # ----------- 辅助：pad→目标尺寸 & 记录 pad ---------
-    @staticmethod
-    def _pad_to_target(x, target=(96,112,96)):
-        _, _, D,H,W = x.shape
-        tD,tH,tW    = target
-        pad = (0, tW-W,   0, tH-H,   0, tD-D)         # 只补右/后/下
-        return F.pad(x, pad), pad                     # pad=(Wl,Wr,Hl,Hr,Dl,Dr)
-
-    # ----------- 辅助：根据 pad 裁回原尺寸 ------------
-    @staticmethod
-    def _crop_back(y, pad):
-        _, _, Dp,Hp,Wp = y.shape
-        Dl,Dr = pad[4], pad[5]
-        Hl,Hr = pad[2], pad[3]
-        Wl,Wr = pad[0], pad[1]
-        return y[:, :, Dl: Dp-Dr if Dr else None,
-                        Hl: Hp-Hr if Hr else None,
-                        Wl: Wp-Wr if Wr else None]
-
-    # ------------------- forward --------------------
-    def forward(self, x):
-        # ① pad 到 96×112×96
-        x_pad, pad = self._pad_to_target(x)
-
-        # ---------- 编码 ----------
-        out, res1 = self.a_block1(x_pad)
-        out, res2 = self.a_block2(out)
-        out, res3 = self.a_block3(out)
-        out, _    = self.bottleNeck(out)
-
-        # ---------- 解码 ----------
-        out = self.s_block3(out, res3)
-        out = self.s_block2(out, res2)
-        out = self.s_block1(out, res1)
-
-        # ② 裁回原始尺寸
-        out = self._crop_back(out, pad)
+        #Synthesis path forward feed
+        out = self.s_block3(out, residual_level3)
+        out = self.s_block2(out, residual_level2)
+        out = self.s_block1(out, residual_level1)
         return out
 
+# unet3d分类器
+class UNet3DClassifier(nn.Module):
+    """
+    3D U-Net–style encoder + classification head.
+    Uses the existing Conv3DBlock for the encoder.
+    """
 
-# ------------------------- Demo -------------------------
+    def __init__(self,
+                 in_channels,
+                 num_classes,
+                 level_channels=[64, 128, 256],
+                 bottleneck_channel=512):
+        super(UNet3DClassifier, self).__init__()
+        l1, l2, l3 = level_channels
+
+        # ─── Encoder ───
+        self.a_block1    = Conv3DBlock(in_channels,   l1)
+        self.a_block2    = Conv3DBlock(l1,            l2)
+        self.a_block3    = Conv3DBlock(l2,            l3)
+        self.bottleNeck  = Conv3DBlock(l3, bottleneck_channel, bottleneck=True)
+
+        # ─── Classification head ───
+        # 将最深特征全局平均池化到 (B, C, 1, 1, 1)
+        self.global_pool = nn.AdaptiveAvgPool3d(1)
+        # 展平后接全连接
+        self.classifier  = nn.Linear(bottleneck_channel, num_classes)
+
+    def forward(self, x):
+        # Analysis path
+        x, _ = self.a_block1(x)           # ↓ spatial ↓
+        x, _ = self.a_block2(x)
+        x, _ = self.a_block3(x)
+        x, _ = self.bottleNeck(x)         # no pooling in bottleneck
+
+        # Classification head
+        x = self.global_pool(x)           # (B, C, 1, 1, 1)
+        x = x.view(x.size(0), -1)         # (B, C)
+        logits = self.classifier(x)       # (B, num_classes)
+        return logits
+
+
+# -------------------- 单流 Encoder (无分类头) --------------------
+class UNet3DEncoder(nn.Module):
+    """仅包含 U-Net 3D 的编码部分，输出瓶颈特征图。"""
+
+    def __init__(self,
+                 in_channels: int,
+                 level_channels = [64, 128, 256],
+                 bottleneck_channel: int = 512):
+        super().__init__()
+        l1, l2, l3 = level_channels
+        self.block1      = Conv3DBlock(in_channels, l1)
+        self.block2      = Conv3DBlock(l1, l2)
+        self.block3      = Conv3DBlock(l2, l3)
+        self.bottleneck  = Conv3DBlock(l3, bottleneck_channel, bottleneck=True)
+
+    def forward(self, x):
+        x, _ = self.block1(x)
+        x, _ = self.block2(x)
+        x, _ = self.block3(x)
+        x, _ = self.bottleneck(x)
+        return x  # shape [B, C, d, h, w]
+
+# -------------------- 双流 3D U‑Net 分类器 --------------------
+class DualStreamUNet3DClassifier(nn.Module):
+    """两路 3D‑U‑Net Encoder，流内独立学习 → 特征拼接 → 分类。"""
+
+    def __init__(self,
+                 in_channels_per_modality: int = 1,
+                 num_classes: int = 2,
+                 level_channels = [64, 128, 256],
+                 bottleneck_channel: int = 512):
+        super().__init__()
+        # 两个独立的 Encoder（参数不共享）
+        self.mri_enc = UNet3DEncoder(in_channels_per_modality,
+                                     level_channels,
+                                     bottleneck_channel)
+        self.pet_enc = UNet3DEncoder(in_channels_per_modality,
+                                     level_channels,
+                                     bottleneck_channel)
+
+        # 全局池化 & 分类头
+        self.global_pool = nn.AdaptiveAvgPool3d(1)          # → (B, C,1,1,1)
+        fused_dim = bottleneck_channel * 2                  # MRI + PET
+        self.classifier = nn.Linear(fused_dim, num_classes)
+
+    def forward(self, mri, pet):
+        # ─── 流内编码 ───
+        f_mri = self.mri_enc(mri)   # [B, C, d, h, w]
+        f_pet = self.pet_enc(pet)
+
+        # ─── 流内池化 ───
+        v_mri = self.global_pool(f_mri).view(f_mri.size(0), -1)  # [B, C]
+        v_pet = self.global_pool(f_pet).view(f_pet.size(0), -1)
+
+        # ─── 融合 & 分类 ───
+        fused = torch.cat([v_mri, v_pet], dim=1)            # [B, 2C]
+        logits = self.classifier(fused)                     # [B, num_classes]
+        return logits
+
+# -------------------------------------------------
+# 通道交换函数（示例：交换前 half_ratio 的通道）
+# -------------------------------------------------
+def cen_exchange(x_mri, x_pet, half_ratio=0.5):
+    B, C, D, H, W = x_mri.shape
+    k = int(C * half_ratio)
+    if k == 0:
+        return x_mri, x_pet
+    # 将前 k 个通道互换
+    xm_head, xm_tail = x_mri[:, :k], x_mri[:, k:]
+    xp_head, xp_tail = x_pet[:, :k], x_pet[:, k:]
+    x_mri_new = torch.cat([xp_head, xm_tail], dim=1)
+    x_pet_new = torch.cat([xm_head, xp_tail], dim=1)
+    return x_mri_new, x_pet_new
+
+
+# -------------------------------------------------
+# 共享卷积、私有 BN 的双分支 Block
+# -------------------------------------------------
+class SharedConv3DBlock(nn.Module):
+    """两模态共用卷积权重，各自 BN；块尾做 CEN."""
+
+    def __init__(self, in_ch, out_ch, half_ratio=0.5, with_pool=True):
+        super().__init__()
+        self.conv1 = nn.Conv3d(in_ch, out_ch // 2, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv3d(out_ch // 2, out_ch, kernel_size=3, padding=1)
+        # 两套 BN
+        self.bn1_mri = nn.BatchNorm3d(out_ch // 2)
+        self.bn1_pet = nn.BatchNorm3d(out_ch // 2)
+        self.bn2_mri = nn.BatchNorm3d(out_ch)
+        self.bn2_pet = nn.BatchNorm3d(out_ch)
+        self.relu = nn.ReLU(inplace=True)
+        self.with_pool = with_pool
+        if with_pool:
+            self.pool = nn.MaxPool3d(2, 2)
+        self.half_ratio = half_ratio
+
+    def _forward_branch(self, x, bn1, bn2):
+        x = self.relu(bn1(self.conv1(x)))
+        x = self.relu(bn2(self.conv2(x)))
+        return x
+
+    def forward(self, x_mri, x_pet):
+        # ── 两分支共用 conv ──
+        xm = self._forward_branch(x_mri, self.bn1_mri, self.bn2_mri)
+        xp = self._forward_branch(x_pet, self.bn1_pet, self.bn2_pet)
+        # ── 通道交换 ──
+        xm, xp = cen_exchange(xm, xp, self.half_ratio)
+        # ── 可选下采样 ──
+        if self.with_pool:
+            xm_p = self.pool(xm)
+            xp_p = self.pool(xp)
+            return xm_p, xp_p, xm, xp  # downsample, residual
+        else:
+            return xm, xp, xm, xp  # bottleneck，无 pooling
+
+# -------------------------------------------------
+# ④ 前两层共享+CEN，后两层独立的分类网络
+# -------------------------------------------------
+class PartialCENUNet3DClassifier(nn.Module):
+    def __init__(self,
+                 in_ch_modality   = 1,
+                 num_classes      = 2,
+                 level_channels   = [64, 128, 256],
+                 bottleneck_ch    = 512,
+                 share_layers     = 2,             # 共享前几层
+                 cen_ratios       = (0.2, 0.1)):   # 每层交换比例
+        super().__init__()
+        assert share_layers == len(cen_ratios), \
+            "len(cen_ratios) 必须等于 share_layers"
+
+        l1, l2, l3 = level_channels
+
+        # ─── 动态构建共享 + CEN 层 ───
+        self.shared_blocks = nn.ModuleList()
+        in_out_pairs = [(in_ch_modality, l1),
+                        (l1, l2),
+                        (l2, l3)]                 # 最多 3 层可共享
+        for i in range(share_layers):
+            in_c , out_c  = in_out_pairs[i]
+            ratio         = cen_ratios[i]
+            self.shared_blocks.append(
+                SharedConv3DBlock(in_c, out_c, half_ratio=ratio)
+            )
+
+        last_out = [l1, l2, l3][share_layers-1]   # 共享段输出通道
+
+        # ─── 深层独立编码 ───
+        self.mri_block3 = Conv3DBlock(last_out, l3)
+        self.pet_block3 = Conv3DBlock(last_out, l3)
+        self.mri_bneck  = Conv3DBlock(l3, bottleneck_ch, bottleneck=True)
+        self.pet_bneck  = Conv3DBlock(l3, bottleneck_ch, bottleneck=True)
+
+        # ─── 全局池化 + 分类 ───
+        self.gap        = nn.AdaptiveAvgPool3d(1)
+        self.classifier = nn.Linear(bottleneck_ch * 2, num_classes)
+
+    def forward(self, mri, pet):
+        # ----- Shared layers + CEN -----
+        for blk in self.shared_blocks:
+            mri, pet, _, _ = blk(mri, pet)
+
+        # ----- Private deep layers -----
+        mri, _ = self.mri_block3(mri)
+        pet, _ = self.pet_block3(pet)
+        mri, _ = self.mri_bneck(mri)
+        pet, _ = self.pet_bneck(pet)
+
+        # ----- Classification head -----
+        vm = self.gap(mri).flatten(1)
+        vp = self.gap(pet).flatten(1)
+        fused  = torch.cat([vm, vp], dim=1)
+        logits = self.classifier(fused)
+        return logits
+
+
 if __name__ == '__main__':
-    model = UNet3D(in_channels=3, num_classes=1)
+    #Configurations according to the Xenopus kidney dataset
+    device = torch.device("cpu")
+    model = PartialCENUNet3DClassifier(in_ch_modality=1,
+                                       num_classes=2).to(device)
 
-    start_time = time.time()
-    summary(model=model, input_size=(3, 16, 128, 128), batch_size=-1, device="cpu")
-    print("--- %s seconds ---" % (time.time() - start_time))
+    B, C, D, H, W = 4, 1, 91, 109, 91
+    mri = torch.randn(B, C, D, H, W, device=device)
+    pet = torch.randn(B, C, D, H, W, device=device)
 
-    # 输入任意奇数尺寸 91×109×91
-    dummy = torch.randn(1, 3, 91, 109, 91)
-    with torch.no_grad():
-        out = model(dummy)
-    print("输入 :", dummy.shape)   # → torch.Size([1, 3, 91, 109, 91])
-    print("输出 :", out.shape)     # → torch.Size([1, 1, 91, 109, 91])
+    start = time.time()
+    out = model(mri, pet)
+    print("logits shape:", out.shape)  # expect [B, num_classes]
+    summary(model, [(C, D, H, W), (C, D, H, W)], device="cpu")
+    print("elapsed:", time.time() - start, "s")

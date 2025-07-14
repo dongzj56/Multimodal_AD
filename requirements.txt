@@ -11,4 +11,4 @@ SimpleITK==2.5.0
 nilearn==0.11.1
 torchsummary==1.5.1
 
-pip install nibabel SimpleITK monai tensorboard tqdm pandas scikit-learn numpy matplotlib nilearn torchsummary
+pip install nibabel SimpleITK monai tensorboard tqdm pandas scikit-learn numpy matplotlib nilearn torchsummary thop

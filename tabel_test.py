@@ -187,8 +187,8 @@ def quick_eval_from_saved(train_csv="train_embeddings.csv", test_csv="test_embed
 # 若脚本作为主程序运行，则执行快速评估
 if __name__ == "__main__":
     print("embedings.......")
-    # tabel_encoder(csv_path='ADNI_Tabel.csv')
-    tabel_encoder_multi(csv_path='ADNI_Tabel.csv',label_col='GROUP',classes=["SCMI","PMCI","AD","CN"], n_fold=5,test_size= 0.2)
+    tabel_encoder(csv_path=rf'C:\Users\dongzj\Desktop\Multimodal_AD\adni_dataset\ADNI_Tabel.csv')
+    # tabel_encoder_multi(csv_path='ADNI_Tabel.csv',label_col='GROUP',classes=["SCMI","PMCI","AD","CN"], n_fold=5,test_size= 0.2)
     print("test model......")
     quick_eval_from_saved()
 

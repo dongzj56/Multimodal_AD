@@ -11,10 +11,11 @@ from nilearn import image, plotting
 # -------------------------------------------------
 # 1. 路径（按需修改）
 # -------------------------------------------------
-mri_path = "/data/coding/test_dataset/MRI/003_S_4524.nii"
-aal_path = "/data/coding/test_dataset/AAL_space-MNI152NLin6_res-2x2x2.nii/AAL_space-MNI152NLin6_res-2x2x2.nii"
+mri_path = rf"C:\Users\dongzj\Desktop\Multimodal_AD\adni_dataset\MRI\002_S_2043.nii"
+aal_path = rf"C:\Users\dongzj\Desktop\Multimodal_AD\adni_dataset\AAL_space-MNI152NLin6_res-2x2x2.nii\AAL_space-MNI152NLin6_res-2x2x2.nii"
+# aal_path = rf"C:\Users\dongzj\Desktop\Multimodal_AD\adni_dataset\aal_for_SPM8\ROI_MNI_V4.nii"
 
-output_dir = "/data/coding/Multimodal_AD/output"
+output_dir = "output"
 os.makedirs(output_dir, exist_ok=True)
 png_file  = os.path.join(output_dir, "mri_hippocampus_overlay.png")
 html_file = os.path.join(output_dir, "mri_hippocampus_overlay.html")
@@ -29,7 +30,7 @@ aal_data = aal_img.get_fdata()
 # -------------------------------------------------
 # 3. 生成海马 ROI 掩膜（41 L-Hippocampus, 42 R-Hippocampus）
 # -------------------------------------------------
-roi_ids   = [41, 42]
+roi_ids = list(range(1, 91))
 mask_data = np.isin(aal_data, roi_ids).astype(np.uint8)
 mask_img  = nib.Nifti1Image(mask_data, affine=aal_img.affine)
 
@@ -44,8 +45,10 @@ display = plotting.plot_roi(
     roi_img=mask_img,
     bg_img=mri_img,
     cmap="autumn",
-    alpha=0.7,
-    title="Bilateral Hippocampus (red overlay)"
+    alpha=0.3,
+    title="(red overlay)",
+    draw_cross = False,  # 不画十字线
+    annotate = False  # 不显示坐标轴与刻度
 )
 display.savefig(png_file, dpi=300)
 display.close()
