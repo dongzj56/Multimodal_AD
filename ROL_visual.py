@@ -12,7 +12,7 @@ from nilearn import image, plotting
 # 1. 路径（按需修改）
 # -------------------------------------------------
 mri_path = rf"C:\Users\dongzj\Desktop\Multimodal_AD\adni_dataset\MRI\002_S_2043.nii"
-aal_path = rf"C:\Users\dongzj\Desktop\Multimodal_AD\adni_dataset\AAL_space-MNI152NLin6_res-2x2x2.nii\AAL_space-MNI152NLin6_res-2x2x2.nii"
+aal_path = rf"C:\Users\dongzj\Desktop\Multimodal_AD\adni_dataset\AAL_space-MNI152NLin6_res-2x2x2\AAL.nii"
 # aal_path = rf"C:\Users\dongzj\Desktop\Multimodal_AD\adni_dataset\aal_for_SPM8\ROI_MNI_V4.nii"
 
 output_dir = "output"
@@ -30,7 +30,7 @@ aal_data = aal_img.get_fdata()
 # -------------------------------------------------
 # 3. 生成海马 ROI 掩膜（41 L-Hippocampus, 42 R-Hippocampus）
 # -------------------------------------------------
-roi_ids = list(range(1, 91))
+roi_ids = [41,42]
 mask_data = np.isin(aal_data, roi_ids).astype(np.uint8)
 mask_img  = nib.Nifti1Image(mask_data, affine=aal_img.affine)
 

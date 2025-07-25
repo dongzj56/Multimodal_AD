@@ -119,6 +119,44 @@ class UNet3D(nn.Module):
         out = self.s_block1(out, residual_level1)
         return out
 
+class UNet3D_Feature(nn.Module):
+    """
+    3D-UNet 变体 —— 输出 64-channel 特征图 (B,64,D,H,W)，不做最终分类卷积
+    """
+    def __init__(self,
+                 in_channels: int,
+                 level_channels: list = [64, 128, 256],
+                 bottleneck_channel: int = 512) -> None:
+        super(UNet3D_Feature, self).__init__()
+        l1, l2, l3 = level_channels
+
+        # -------- 编码端 --------
+        self.a_block1 = Conv3DBlock(in_channels, l1)
+        self.a_block2 = Conv3DBlock(l1, l2)
+        self.a_block3 = Conv3DBlock(l2, l3)
+        self.bottleNeck = Conv3DBlock(l3, bottleneck_channel, bottleneck=True)
+
+        # -------- 解码端 --------
+        self.s_block3 = UpConv3DBlock(bottleneck_channel, res_channels=l3)
+        self.s_block2 = UpConv3DBlock(l3, res_channels=l2)
+        # 去掉 1×1×1 卷积：last_layer=False 且 num_classes=None
+        self.s_block1 = UpConv3DBlock(l2, res_channels=l1,
+                                      last_layer=False, num_classes=None)
+
+    def forward(self, x):
+        # ----- Analysis path -----
+        x, res1 = self.a_block1(x)
+        x, res2 = self.a_block2(x)
+        x, res3 = self.a_block3(x)
+        x, _    = self.bottleNeck(x)
+
+        # ----- Synthesis path -----
+        x = self.s_block3(x, res3)
+        x = self.s_block2(x, res2)
+        x = self.s_block1(x, res1)      # (B, 64, D, H, W)
+        return x
+
+
 # unet3d分类器
 class UNet3DClassifier(nn.Module):
     """
@@ -338,15 +376,15 @@ class PartialCENUNet3DClassifier(nn.Module):
 if __name__ == '__main__':
     #Configurations according to the Xenopus kidney dataset
     device = torch.device("cpu")
-    model = PartialCENUNet3DClassifier(in_ch_modality=1,
+    model = UNet3D(in_channels=2,
                                        num_classes=2).to(device)
 
-    B, C, D, H, W = 4, 1, 91, 109, 91
+    B, C, D, H, W = 1, 2, 96, 112, 96
     mri = torch.randn(B, C, D, H, W, device=device)
     pet = torch.randn(B, C, D, H, W, device=device)
 
     start = time.time()
-    out = model(mri, pet)
+    out = model(mri)
     print("logits shape:", out.shape)  # expect [B, num_classes]
-    summary(model, [(C, D, H, W), (C, D, H, W)], device="cpu")
+    summary(model, [(C, D, H, W)], device="cpu")
     print("elapsed:", time.time() - start, "s")
